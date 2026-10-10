@@ -6,7 +6,7 @@ Measured on 10 October 2026 on the user's Windows workstation. These are local s
 | --- | --- |
 | GPU | NVIDIA GeForce RTX 4050 Laptop GPU |
 | Reported physical VRAM | 6,141 MiB (`nvidia-smi`) |
-| Free VRAM before photo probe | 5,252 MiB (changes with desktop applications) |
+| Free VRAM before photo probe | 5,251 MiB (changes with desktop applications) |
 | NVIDIA driver | 591.66 |
 | Driver CUDA capability | 13.1 |
 | Python | 3.14.0 |
@@ -29,9 +29,9 @@ Command from repository root:
 
 This uses the locally installed Ultralytics smoke photograph; no photo is committed to this repository. Five objects were extracted at confidence 0.15: one bus and four people. Their scores ranged from approximately 0.787 to 0.927. These are model scores, not manually assessed accuracy.
 
-- First inference including model loading and CUDA warm-up with cached weights: **5.53 s**.
-- Five warm, complete detection service calls: **36.08, 22.10, 22.05, 21.50, 21.49 ms**.
-- Median warm call: **22.05 ms**.
+- First inference including model loading and CUDA warm-up with cached weights: **5.33 s**.
+- Five warm, complete detection service calls: **22.36, 21.04, 20.56, 21.10, 21.70 ms**.
+- Median warm call: **21.10 ms**.
 - PyTorch peak allocated tensor memory during the last inference: **110.1 MiB**.
 
 The tensor memory counter excludes CUDA context, cuDNN workspace, allocator reservations and other applications; it must not be interpreted as total GPU consumption. Timing includes image reading, preprocessing, inference, postprocessing and metadata conversion, but excludes API upload, thumbnail generation and database transactions. Laptop power state, image dimensions and other applications affect results.
