@@ -62,20 +62,28 @@ def create_app(settings: Settings | None = None, engine: Detector | None = None)
 
     @application.exception_handler(RequestValidationError)
     async def invalid_request(_request: Request, error: RequestValidationError):
-        messages = [f"{'.'.join(str(part) for part in entry['loc'][1:])}: {entry['msg']}" for entry in error.errors()]
+        messages = [
+            f"{'.'.join(str(part) for part in entry['loc'][1:])}: {entry['msg']}" for entry in error.errors()
+        ]
         return JSONResponse(status_code=422, content={"detail": "Invalid request. " + " ".join(messages[:3])})
 
     @application.exception_handler(Exception)
     async def unexpected_error(_request: Request, error: Exception):
         logger.exception("Unexpected API error", exc_info=error)
-        return JSONResponse(status_code=500, content={"detail": "The request could not be completed. Check the backend log and try again."})
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "The request could not be completed. Check the backend log and try again."},
+        )
 
     @application.get("/", include_in_schema=False)
     def home():
         index = configuration.frontend_dist / "index.html"
         if index.is_file():
             return FileResponse(index, headers={"Cache-Control": "no-cache"})
-        return {"message": "Visual Object Retrieval API is running. Start the frontend or build frontend/dist.", "docs": "/docs"}
+        return {
+            "message": "Visual Object Retrieval API is running. Start the frontend or build frontend/dist.",
+            "docs": "/docs",
+        }
 
     @application.get("/{asset_path:path}", include_in_schema=False)
     def frontend_asset(asset_path: str):

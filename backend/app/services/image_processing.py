@@ -60,7 +60,13 @@ def prepare_image(filename: str | None, payload: bytes, settings: Settings) -> P
                     normalized.paste(rgba, mask=rgba.getchannel("A"))
                 else:
                     normalized = oriented.convert("RGB")
-    except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError, Image.DecompressionBombWarning) as error:
+    except (
+        UnidentifiedImageError,
+        OSError,
+        SyntaxError,
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+    ) as error:
         raise ValueError("The image is corrupted, unsafe, or cannot be decoded.") from error
     return PreparedImage(name, sha256(payload).hexdigest(), normalized)
 

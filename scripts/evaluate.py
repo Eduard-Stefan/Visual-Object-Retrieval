@@ -57,9 +57,7 @@ def load_labels(path: Path) -> dict[str, ImageLabels]:
             raise EvaluationError(f"Duplicate filename in labels: {filename}")
         categories = row.get("categories")
         if not isinstance(categories, list):
-            raise EvaluationError(
-                f"Review {filename}: categories must be an array; null means unreviewed."
-            )
+            raise EvaluationError(f"Review {filename}: categories must be an array; null means unreviewed.")
         canonical = [canonical_category(category) for category in categories]
         if len(canonical) != len(set(canonical)):
             raise EvaluationError(f"Duplicate categories in labels for {filename}.")
@@ -83,9 +81,7 @@ class ApiClient:
             raise EvaluationError("--api-url must start with http:// or https://.")
         self.timeout = timeout
 
-    def request(
-        self, method: str, path: str, payload: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         request = Request(
             f"{self.api_url}{path}",
@@ -106,14 +102,10 @@ class ApiClient:
 
     def collection(self) -> list[dict[str, Any]]:
         return collect_pages(
-            lambda page, page_size: self.request(
-                "GET", f"/api/images?page={page}&page_size={page_size}"
-            )
+            lambda page, page_size: self.request("GET", f"/api/images?page={page}&page_size={page_size}")
         )
 
-    def search(
-        self, categories: list[str], mode: str, confidence: float
-    ) -> list[dict[str, Any]]:
+    def search(self, categories: list[str], mode: str, confidence: float) -> list[dict[str, Any]]:
         return collect_pages(
             lambda page, page_size: self.request(
                 "POST",
@@ -130,9 +122,7 @@ class ApiClient:
         )
 
 
-def collect_pages(
-    fetch: Callable[[int, int], dict[str, Any]], page_size: int = 100
-) -> list[dict[str, Any]]:
+def collect_pages(fetch: Callable[[int, int], dict[str, Any]], page_size: int = 100) -> list[dict[str, Any]]:
     """Read every result page and reject incomplete or unstable responses."""
     collected: list[dict[str, Any]] = []
     identities: set[str] = set()
@@ -141,12 +131,7 @@ def collect_pages(
     while True:
         response = fetch(page, page_size)
         rows, total = response.get("items"), response.get("total")
-        if (
-            not isinstance(rows, list)
-            or isinstance(total, bool)
-            or not isinstance(total, int)
-            or total < 0
-        ):
+        if not isinstance(rows, list) or isinstance(total, bool) or not isinstance(total, int) or total < 0:
             raise EvaluationError("API pagination must return items and a nonnegative total.")
         if expected_total is not None and total != expected_total:
             raise EvaluationError("Collection changed during pagination; rerun when idle.")
@@ -206,9 +191,7 @@ def validate_collection(
     return collection
 
 
-def relevant_filenames(
-    labels: dict[str, ImageLabels], categories: Iterable[str], mode: str
-) -> set[str]:
+def relevant_filenames(labels: dict[str, ImageLabels], categories: Iterable[str], mode: str) -> set[str]:
     query = frozenset(canonical_category(category) for category in categories)
     if not query:
         raise EvaluationError("Select at least one category for evaluation.")
@@ -254,7 +237,10 @@ def collection_signature(collection: dict[str, dict[str, Any]]) -> list[tuple[An
 
 
 def evaluate(
-    client: ApiClient, labels: dict[str, ImageLabels], categories: list[str], mode: str,
+    client: ApiClient,
+    labels: dict[str, ImageLabels],
+    categories: list[str],
+    mode: str,
     confidence: float,
 ) -> dict[str, Any]:
     if not math.isfinite(confidence) or not 0 <= confidence <= 1:
@@ -292,7 +278,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--labels", type=Path, required=True, help="Reviewed ground-truth JSON.")
     parser.add_argument(
-        "--categories", nargs="+", action="append", required=True,
+        "--categories",
+        nargs="+",
+        action="append",
+        required=True,
         help='COCO names; quote names with spaces, for example "traffic light". Repeatable.',
     )
     parser.add_argument("--mode", choices=("and", "or"), default="and")

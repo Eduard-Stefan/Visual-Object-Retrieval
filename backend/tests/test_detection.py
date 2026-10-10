@@ -27,15 +27,33 @@ class Tensor:
 
 
 def settings(tmp_path):
-    return SimpleNamespace(model="yolo11m.pt", fallback_model="yolo11s.pt", device="auto",
-                           data_dir=tmp_path, image_size=640, detection_confidence=.15)
+    return SimpleNamespace(
+        model="yolo11m.pt",
+        fallback_model="yolo11s.pt",
+        device="auto",
+        data_dir=tmp_path,
+        image_size=640,
+        detection_confidence=0.15,
+    )
 
 
 def test_extract_metadata_clamps_boxes_and_returns_native_values():
-    result = SimpleNamespace(boxes=SimpleNamespace(xyxy=Tensor([[-1, 2, 120, 90]]),
-                             cls=Tensor([2.0]), conf=Tensor([.87])), orig_shape=(80, 100), names={2: "car"})
-    assert extract_detections(result) == [{"class_id": 2, "class_name": "car", "confidence": .87,
-                                          "x1": 0., "y1": 2., "x2": 100., "y2": 80.}]
+    result = SimpleNamespace(
+        boxes=SimpleNamespace(xyxy=Tensor([[-1, 2, 120, 90]]), cls=Tensor([2.0]), conf=Tensor([0.87])),
+        orig_shape=(80, 100),
+        names={2: "car"},
+    )
+    assert extract_detections(result) == [
+        {
+            "class_id": 2,
+            "class_name": "car",
+            "confidence": 0.87,
+            "x1": 0.0,
+            "y1": 2.0,
+            "x2": 100.0,
+            "y2": 80.0,
+        }
+    ]
     assert extract_detections(SimpleNamespace(boxes=None)) == []
 
 
@@ -83,7 +101,7 @@ def test_cached_model_is_reused_and_inference_is_configured(tmp_path):
     options = model.predict.call_args.kwargs
     assert options["batch"] == 1 and options["quantize"] == 32
     assert "half" not in options
-    assert options["imgsz"] == 640 and options["conf"] == .15
+    assert options["imgsz"] == 640 and options["conf"] == 0.15
 
 
 def fake_torch(cuda_available=True):
@@ -109,7 +127,9 @@ def fake_torch(cuda_available=True):
 def fake_ultralytics(monkeypatch, create_model):
     yolo_settings = {}
     events = SimpleNamespace(enabled=True)
-    monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=create_model, settings=yolo_settings))
+    monkeypatch.setitem(
+        sys.modules, "ultralytics", SimpleNamespace(YOLO=create_model, settings=yolo_settings)
+    )
     monkeypatch.setitem(sys.modules, "ultralytics.utils", SimpleNamespace())
     monkeypatch.setitem(sys.modules, "ultralytics.utils.events", SimpleNamespace(events=events))
     return yolo_settings, events
@@ -172,7 +192,7 @@ def test_concurrent_status_cannot_observe_incomplete_configuration(tmp_path, mon
     try:
         assert entered_hardware_setup.wait(timeout=2)
         status_thread.start()
-        assert not status_finished.wait(timeout=.05)
+        assert not status_finished.wait(timeout=0.05)
         assert engine._torch is None
     finally:
         finish_hardware_setup.set()

@@ -1,4 +1,5 @@
 """Serve the built React application and FastAPI together on localhost."""
+
 import argparse
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ def main():
     if not (ROOT / "frontend" / "dist" / "index.html").exists():
         parser.exit(1, "Build the interface first: cd frontend; npm ci; npm run build\n")
     import uvicorn
+
     uvicorn.run("backend.app.main:app", host="127.0.0.1", port=args.port, workers=1)
 
 

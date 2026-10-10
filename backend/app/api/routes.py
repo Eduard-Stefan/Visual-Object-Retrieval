@@ -7,7 +7,17 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..models import ImageRecord, JobRecord
-from ..schemas import Category, Detection, Image, ImagePage, Job, SearchRequest, SortOrder, Statistics, UploadAccepted
+from ..schemas import (
+    Category,
+    Detection,
+    Image,
+    ImagePage,
+    Job,
+    SearchRequest,
+    SortOrder,
+    Statistics,
+    UploadAccepted,
+)
 from ..services.image_processing import GENERATED_FILENAME
 from ..services.retrieval import categories, get_detections, image_payload, search_images, statistics
 
@@ -62,9 +72,14 @@ def job_status(job_id: str, session: SessionDependency):
     if not job:
         raise HTTPException(404, "This processing job was not found.")
     result = {
-        "id": job.id, "status": "queued" if job.status == "uploading" else job.status,
-        "total": job.total, "processed": job.processed, "uploaded": job.uploaded,
-        "duplicates": job.duplicates, "failed": job.failed, "errors": job.errors,
+        "id": job.id,
+        "status": "queued" if job.status == "uploading" else job.status,
+        "total": job.total,
+        "processed": job.processed,
+        "uploaded": job.uploaded,
+        "duplicates": job.duplicates,
+        "failed": job.failed,
+        "errors": job.errors,
     }
     return Job(**result)
 
@@ -77,7 +92,9 @@ def list_images(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 24,
 ):
-    return search_images(session, SearchRequest(confidence=confidence, sort=sort, page=page, page_size=page_size))
+    return search_images(
+        session, SearchRequest(confidence=confidence, sort=sort, page=page, page_size=page_size)
+    )
 
 
 @router.delete("/images", status_code=204)

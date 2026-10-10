@@ -29,15 +29,17 @@ def extract_detections(result) -> list[dict]:
     for xyxy, class_value, confidence in zip(coordinates, classes, confidences, strict=True):
         class_id = int(class_value)
         x1, y1, x2, y2 = xyxy
-        output.append({
-            "class_id": class_id,
-            "class_name": result.names[class_id],
-            "confidence": float(confidence),
-            "x1": max(0.0, min(float(x1), width)),
-            "y1": max(0.0, min(float(y1), height)),
-            "x2": max(0.0, min(float(x2), width)),
-            "y2": max(0.0, min(float(y2), height)),
-        })
+        output.append(
+            {
+                "class_id": class_id,
+                "class_name": result.names[class_id],
+                "confidence": float(confidence),
+                "x1": max(0.0, min(float(x1), width)),
+                "y1": max(0.0, min(float(y1), height)),
+                "x2": max(0.0, min(float(x2), width)),
+                "y2": max(0.0, min(float(y2), height)),
+            }
+        )
     return output
 
 
@@ -79,19 +81,29 @@ class DetectionEngine:
                 )
             index = int(cuda_index) if cuda_index.isdecimal() else 0
             cuda_available = torch.cuda.is_available()
-            hardware = {"torch_version": torch.__version__, "cuda_version": torch.version.cuda,
-                        "cuda_available": cuda_available}
+            hardware = {
+                "torch_version": torch.__version__,
+                "cuda_version": torch.version.cuda,
+                "cuda_available": cuda_available,
+            }
             warning = None
             properties = None
             if cuda_available:
                 if index >= torch.cuda.device_count():
-                    raise DetectionError("The configured CUDA device does not exist. Set VOR_DEVICE=auto or cpu.")
+                    raise DetectionError(
+                        "The configured CUDA device does not exist. Set VOR_DEVICE=auto or cpu."
+                    )
                 try:
                     properties = torch.cuda.get_device_properties(index)
                     free, total = torch.cuda.mem_get_info(index)
-                    hardware.update({"gpu_name": properties.name, "total_vram_mb": round(total / 2**20),
-                                     "free_vram_mb": round(free / 2**20),
-                                     "compute_capability": f"{properties.major}.{properties.minor}"})
+                    hardware.update(
+                        {
+                            "gpu_name": properties.name,
+                            "total_vram_mb": round(total / 2**20),
+                            "free_vram_mb": round(free / 2**20),
+                            "compute_capability": f"{properties.major}.{properties.minor}",
+                        }
+                    )
                 except Exception:
                     # Even a nominally available CUDA driver can fail during
                     # initialization. Explicit CPU configuration must still work.
@@ -110,7 +122,9 @@ class DetectionEngine:
                 device = "mps"
             else:
                 device = "cpu"
-                warning = warning or "GPU acceleration is unavailable for this PyTorch build. Using CPU inference."
+                warning = (
+                    warning or "GPU acceleration is unavailable for this PyTorch build. Using CPU inference."
+                )
             if device == "cpu":
                 torch.set_num_threads(min(4, os.cpu_count() or 1))
 
@@ -135,12 +149,14 @@ class DetectionEngine:
             from ultralytics import YOLO, settings as yolo_settings
             from ultralytics.utils.events import events
 
-            yolo_settings.update({
-                "sync": False,
-                "datasets_dir": str(self.settings.data_dir / "datasets"),
-                "weights_dir": str(self.settings.data_dir / "models"),
-                "runs_dir": str(self.settings.data_dir / "runs"),
-            })
+            yolo_settings.update(
+                {
+                    "sync": False,
+                    "datasets_dir": str(self.settings.data_dir / "datasets"),
+                    "weights_dir": str(self.settings.data_dir / "models"),
+                    "runs_dir": str(self.settings.data_dir / "runs"),
+                }
+            )
             # The singleton may have been created during import before settings
             # were changed. Disable it directly before loading or predicting.
             events.enabled = False
@@ -183,9 +199,16 @@ class DetectionEngine:
         start = perf_counter()
         with self._torch.inference_mode():
             results = self._model.predict(
-                source=str(path), device=self.device, quantize=16 if self.half else 32, batch=1,
-                imgsz=self.settings.image_size, conf=self.settings.detection_confidence,
-                verbose=False, save=False, stream=False, max_det=300,
+                source=str(path),
+                device=self.device,
+                quantize=16 if self.half else 32,
+                batch=1,
+                imgsz=self.settings.image_size,
+                conf=self.settings.detection_confidence,
+                verbose=False,
+                save=False,
+                stream=False,
+                max_det=300,
             )
         if cuda:
             self._torch.cuda.synchronize(self.device)
@@ -212,7 +235,9 @@ class DetectionEngine:
                         oom = "out of memory" in message
                         accelerated = self.device.startswith("cuda") or self.device == "mps"
                         accelerator_error = accelerated and any(
-                            term in message for term in ("cuda", "cudnn", "cublas", "mps", "metal", "out of memory"))
+                            term in message
+                            for term in ("cuda", "cudnn", "cublas", "mps", "metal", "out of memory")
+                        )
                         if attempt == 2 or not accelerator_error:
                             raise
                         # Failed prediction frames may retain GPU tensors. Drop
@@ -231,8 +256,11 @@ class DetectionEngine:
                 raise DetectionError("Inference recovery was exhausted. Restart the backend and retry.")
             except Exception as exc:
                 self.ready = False
-                self.error = str(exc) if isinstance(exc, DetectionError) else (
-                    "Object detection failed. Check the backend log and retry the image.")
+                self.error = (
+                    str(exc)
+                    if isinstance(exc, DetectionError)
+                    else ("Object detection failed. Check the backend log and retry the image.")
+                )
                 logger.exception("Inference failed")
                 raise DetectionError(self.error) from exc
 
@@ -242,10 +270,20 @@ class DetectionEngine:
             self._configure()
         except Exception as exc:
             logger.exception("Hardware inspection failed")
-            self.error = str(exc) if isinstance(exc, DetectionError) else (
-                "Hardware inspection failed. Check the PyTorch installation.")
+            self.error = (
+                str(exc)
+                if isinstance(exc, DetectionError)
+                else ("Hardware inspection failed. Check the PyTorch installation.")
+            )
         with self._configuration_lock:
-            return {"model": self.model_name, "device": self.device, "half": self.half,
-                    "ready": self.ready, "error": self.error, "hardware": self.hardware.copy(),
-                    "warnings": self.warnings.copy(), "last_inference_ms": self.last_inference_ms,
-                    "peak_vram_mb": self.peak_vram_mb}
+            return {
+                "model": self.model_name,
+                "device": self.device,
+                "half": self.half,
+                "ready": self.ready,
+                "error": self.error,
+                "hardware": self.hardware.copy(),
+                "warnings": self.warnings.copy(),
+                "last_inference_ms": self.last_inference_ms,
+                "peak_vram_mb": self.peak_vram_mb,
+            }

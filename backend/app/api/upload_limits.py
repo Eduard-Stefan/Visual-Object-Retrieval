@@ -9,7 +9,9 @@ class UploadBodyLimitMiddleware:
     def __init__(self, app: ASGIApp, max_body_mb: int):
         self.app = app
         self.maximum = max_body_mb * 1024 * 1024
-        self.message = f"The upload batch exceeds the {max_body_mb} MB request limit. Upload fewer or smaller images."
+        self.message = (
+            f"The upload batch exceeds the {max_body_mb} MB request limit. Upload fewer or smaller images."
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != "/api/images/upload":
@@ -21,7 +23,9 @@ class UploadBodyLimitMiddleware:
                 try:
                     length = int(value)
                 except ValueError:
-                    response = JSONResponse({"detail": "The upload has an invalid Content-Length header."}, status_code=400)
+                    response = JSONResponse(
+                        {"detail": "The upload has an invalid Content-Length header."}, status_code=400
+                    )
                     await response(scope, receive, send)
                     return
                 if length > self.maximum:

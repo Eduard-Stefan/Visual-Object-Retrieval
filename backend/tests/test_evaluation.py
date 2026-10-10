@@ -71,32 +71,42 @@ def test_zero_denominators_are_explicit(relevant, retrieved, precision, recall, 
 
 def test_and_or_relevance_uses_manual_categories(labels):
     assert relevant_filenames(labels, [" Person ", "BICYCLE"], "and") == {"cycling.jpg"}
-    assert relevant_filenames(labels, ["person", "bicycle"], "or") == {
-        "cycling.jpg", "walking.jpg"
-    }
+    assert relevant_filenames(labels, ["person", "bicycle"], "or") == {"cycling.jpg", "walking.jpg"}
     with pytest.raises(EvaluationError, match="at least one category"):
         relevant_filenames(labels, [], "and")
 
 
 def test_label_loader_rejects_unreviewed_template(tmp_path):
     path = tmp_path / "labels.json"
-    path.write_text(json.dumps({
-        "schema_version": 1,
-        "images": [{"filename": "photo.jpg", "categories": None}],
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "images": [{"filename": "photo.jpg", "categories": None}],
+            }
+        )
+    )
     with pytest.raises(EvaluationError, match="null means unreviewed"):
         load_labels(path)
 
 
 def test_label_loader_accepts_reviewed_negative_and_normalizes(tmp_path):
     path = tmp_path / "labels.json"
-    path.write_text(json.dumps({
-        "schema_version": 1,
-        "images": [
-            {"filename": "photo.jpg", "categories": [" Person ", "TRAFFIC LIGHT"], "file_hash": "A" * 64},
-            {"filename": "empty.jpg", "categories": []},
-        ],
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "images": [
+                    {
+                        "filename": "photo.jpg",
+                        "categories": [" Person ", "TRAFFIC LIGHT"],
+                        "file_hash": "A" * 64,
+                    },
+                    {"filename": "empty.jpg", "categories": []},
+                ],
+            }
+        )
+    )
     result = load_labels(path)
     assert result["photo.jpg"].categories == {"person", "traffic light"}
     assert result["photo.jpg"].file_hash == "a" * 64
@@ -105,10 +115,14 @@ def test_label_loader_accepts_reviewed_negative_and_normalizes(tmp_path):
 
 def test_label_loader_rejects_duplicate_filenames(tmp_path):
     path = tmp_path / "labels.json"
-    path.write_text(json.dumps({
-        "schema_version": 1,
-        "images": [{"filename": "same.jpg", "categories": []}] * 2,
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "images": [{"filename": "same.jpg", "categories": []}] * 2,
+            }
+        )
+    )
     with pytest.raises(EvaluationError, match="Duplicate filename"):
         load_labels(path)
 

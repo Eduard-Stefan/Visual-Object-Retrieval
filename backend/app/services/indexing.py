@@ -14,7 +14,13 @@ from sqlalchemy import delete, func, select
 from ..core.config import Settings
 from ..database import Database
 from ..models import DetectionRecord, ImageRecord, JobRecord
-from .image_processing import GENERATED_FILENAME, prepare_image, remove_stored_image, safe_filename, store_image
+from .image_processing import (
+    GENERATED_FILENAME,
+    prepare_image,
+    remove_stored_image,
+    safe_filename,
+    store_image,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -60,16 +66,26 @@ class IndexingService:
             for image in session.scalars(select(ImageRecord).where(ImageRecord.status == "processing")):
                 image.status = "queued"
             session.flush()
-            active = session.scalars(select(JobRecord).where(JobRecord.status.in_(["uploading", "queued", "processing"])))
+            active = session.scalars(
+                select(JobRecord).where(JobRecord.status.in_(["uploading", "queued", "processing"]))
+            )
             for job in active:
-                pending = session.scalar(select(func.count()).select_from(ImageRecord).where(
-                    ImageRecord.job_id == job.id, ImageRecord.status == "queued"
-                )) or 0
+                pending = (
+                    session.scalar(
+                        select(func.count())
+                        .select_from(ImageRecord)
+                        .where(ImageRecord.job_id == job.id, ImageRecord.status == "queued")
+                    )
+                    or 0
+                )
                 missing = max(job.total - job.processed - pending, 0)
                 if missing:
                     job.processed += missing
                     job.failed += missing
-                    job.errors = [*job.errors, f"{missing} upload(s) were interrupted before storage completed. Please upload them again."]
+                    job.errors = [
+                        *job.errors,
+                        f"{missing} upload(s) were interrupted before storage completed. Please upload them again.",
+                    ]
                 job.status = "queued"
                 finish_job(job)
             known = set(session.scalars(select(ImageRecord.stored_filename)))
@@ -88,11 +104,18 @@ class IndexingService:
         if len(files) > self.settings.max_upload_files:
             raise HTTPException(413, f"Upload at most {self.settings.max_upload_files} images at a time.")
         with self.lock, self.database.session.begin() as session:
-            pending = session.scalar(select(func.coalesce(func.sum(JobRecord.total - JobRecord.processed), 0)).where(
-                JobRecord.status.in_(["uploading", "queued", "processing"])
-            )) or 0
+            pending = (
+                session.scalar(
+                    select(func.coalesce(func.sum(JobRecord.total - JobRecord.processed), 0)).where(
+                        JobRecord.status.in_(["uploading", "queued", "processing"])
+                    )
+                )
+                or 0
+            )
             if pending + len(files) > self.settings.max_pending_images:
-                raise HTTPException(429, "The processing queue is full. Wait for the current batch to finish and try again.")
+                raise HTTPException(
+                    429, "The processing queue is full. Wait for the current batch to finish and try again."
+                )
             job = JobRecord(id=str(uuid4()), total=len(files))
             session.add(job)
             session.flush()
@@ -107,8 +130,13 @@ class IndexingService:
                 with self.lock, self.database.session.begin() as session:
                     job = session.get(JobRecord, job_id)
                     if job.status != "uploading":
-                        raise HTTPException(409, "The collection was cleared during the upload. Please upload the images again.")
-                    duplicate = session.scalar(select(ImageRecord.id).where(ImageRecord.file_hash == prepared.file_hash))
+                        raise HTTPException(
+                            409,
+                            "The collection was cleared during the upload. Please upload the images again.",
+                        )
+                    duplicate = session.scalar(
+                        select(ImageRecord.id).where(ImageRecord.file_hash == prepared.file_hash)
+                    )
                     if duplicate:
                         job.processed += 1
                         job.duplicates += 1
@@ -116,16 +144,18 @@ class IndexingService:
                         image_id = str(uuid4())
                         stored_filename = f"{image_id}.jpg"
                         store_image(prepared, stored_filename, self.settings)
-                        session.add(ImageRecord(
-                            id=image_id,
-                            filename=prepared.filename,
-                            stored_filename=stored_filename,
-                            file_hash=prepared.file_hash,
-                            width=prepared.image.width,
-                            height=prepared.image.height,
-                            status="queued",
-                            job_id=job_id,
-                        ))
+                        session.add(
+                            ImageRecord(
+                                id=image_id,
+                                filename=prepared.filename,
+                                stored_filename=stored_filename,
+                                file_hash=prepared.file_hash,
+                                width=prepared.image.width,
+                                height=prepared.image.height,
+                                status="queued",
+                                job_id=job_id,
+                            )
+                        )
             except HTTPException:
                 raise
             except Exception as error:
@@ -148,7 +178,9 @@ class IndexingService:
         with self.lock, self.database.session.begin() as session:
             job = session.get(JobRecord, job_id)
             if job.status != "uploading":
-                raise HTTPException(409, "The collection was cleared during the upload. Please upload the images again.")
+                raise HTTPException(
+                    409, "The collection was cleared during the upload. Please upload the images again."
+                )
             job.status = "queued"
             finish_job(job)
             no_valid_images = job.status == "failed"
@@ -165,11 +197,18 @@ class IndexingService:
                 raise HTTPException(404, "This image was not found.")
             if image.status != "failed":
                 raise HTTPException(409, "Only images whose indexing failed can be retried.")
-            pending = session.scalar(select(func.coalesce(func.sum(JobRecord.total - JobRecord.processed), 0)).where(
-                JobRecord.status.in_(["uploading", "queued", "processing"])
-            )) or 0
+            pending = (
+                session.scalar(
+                    select(func.coalesce(func.sum(JobRecord.total - JobRecord.processed), 0)).where(
+                        JobRecord.status.in_(["uploading", "queued", "processing"])
+                    )
+                )
+                or 0
+            )
             if pending >= self.settings.max_pending_images:
-                raise HTTPException(429, "The processing queue is full. Try again after the current batch finishes.")
+                raise HTTPException(
+                    429, "The processing queue is full. Try again after the current batch finishes."
+                )
             job = JobRecord(id=str(uuid4()), total=1, status="queued")
             session.add(job)
             session.flush()
@@ -196,7 +235,9 @@ class IndexingService:
 
     def clear(self) -> None:
         with self.lock, self.database.session.begin() as session:
-            for job in session.scalars(select(JobRecord).where(JobRecord.status.in_(["uploading", "queued", "processing"]))):
+            for job in session.scalars(
+                select(JobRecord).where(JobRecord.status.in_(["uploading", "queued", "processing"]))
+            ):
                 remaining = job.total - job.processed
                 job.failed += remaining
                 job.processed = job.total
@@ -211,7 +252,12 @@ class IndexingService:
             job_id = None
             try:
                 with self.database.session() as session:
-                    job_id = session.scalar(select(JobRecord.id).where(JobRecord.status == "queued").order_by(JobRecord.created_at, JobRecord.id).limit(1))
+                    job_id = session.scalar(
+                        select(JobRecord.id)
+                        .where(JobRecord.status == "queued")
+                        .order_by(JobRecord.created_at, JobRecord.id)
+                        .limit(1)
+                    )
                 if job_id:
                     self._process_job(job_id)
                     continue
@@ -223,9 +269,11 @@ class IndexingService:
                             job = session.get(JobRecord, job_id)
                             if job and job.status == "processing":
                                 job.status = "queued"
-                                for image in session.scalars(select(ImageRecord).where(
-                                    ImageRecord.job_id == job_id, ImageRecord.status == "processing"
-                                )):
+                                for image in session.scalars(
+                                    select(ImageRecord).where(
+                                        ImageRecord.job_id == job_id, ImageRecord.status == "processing"
+                                    )
+                                ):
                                     image.status = "queued"
                     except Exception:
                         logger.exception("Could not requeue the interrupted indexing transaction")
@@ -238,9 +286,12 @@ class IndexingService:
                 job = session.get(JobRecord, job_id)
                 if not job or job.status not in {"queued", "processing"}:
                     return
-                image = session.scalar(select(ImageRecord).where(
-                    ImageRecord.job_id == job_id, ImageRecord.status == "queued"
-                ).order_by(ImageRecord.uploaded_at, ImageRecord.id).limit(1))
+                image = session.scalar(
+                    select(ImageRecord)
+                    .where(ImageRecord.job_id == job_id, ImageRecord.status == "queued")
+                    .order_by(ImageRecord.uploaded_at, ImageRecord.id)
+                    .limit(1)
+                )
                 if not image:
                     remaining = max(job.total - job.processed, 0)
                     if remaining:
@@ -261,7 +312,9 @@ class IndexingService:
                 detections = self._validated_detections(predictions, width, height)
             except Exception:
                 logger.exception("Object detection failed for image %s", image_id)
-                error_message = "Object detection failed. Check the model and device settings, then retry this image."
+                error_message = (
+                    "Object detection failed. Check the model and device settings, then retry this image."
+                )
                 try:
                     safe_error = self.detector.status().get("error")
                     if isinstance(safe_error, str) and safe_error:
@@ -273,7 +326,12 @@ class IndexingService:
                 image = session.get(ImageRecord, image_id)
                 job = session.get(JobRecord, job_id)
                 # Deletes and collection clearing cannot resurrect a row after inference.
-                if not image or not job or image.job_id != job_id or job.status not in {"queued", "processing"}:
+                if (
+                    not image
+                    or not job
+                    or image.job_id != job_id
+                    or job.status not in {"queued", "processing"}
+                ):
                     continue
                 if error_message:
                     image.status = "failed"
@@ -282,7 +340,9 @@ class IndexingService:
                     job.errors = [*job.errors, f"{image.filename}: {error_message}"]
                 else:
                     session.execute(delete(DetectionRecord).where(DetectionRecord.image_id == image_id))
-                    session.add_all([DetectionRecord(image_id=image_id, **detection) for detection in detections])
+                    session.add_all(
+                        [DetectionRecord(image_id=image_id, **detection) for detection in detections]
+                    )
                     image.model = str(self.detector.model_name)
                     image.status = "completed"
                     image.error = None
@@ -306,8 +366,15 @@ class IndexingService:
             class_name = str(prediction["class_name"]).strip().lower()
             if class_id < 0 or not class_name or len(class_name) > 80 or x2 <= x1 or y2 <= y1:
                 continue
-            detections.append(dict(
-                class_id=class_id, class_name=class_name, confidence=confidence,
-                x1=x1, y1=y1, x2=x2, y2=y2,
-            ))
+            detections.append(
+                dict(
+                    class_id=class_id,
+                    class_name=class_name,
+                    confidence=confidence,
+                    x1=x1,
+                    y1=y1,
+                    x2=x2,
+                    y2=y2,
+                )
+            )
         return detections

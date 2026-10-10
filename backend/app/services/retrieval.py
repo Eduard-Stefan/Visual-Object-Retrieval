@@ -8,7 +8,9 @@ from ..models import DetectionRecord, ImageRecord
 from ..schemas import Category, Detection, Image, ImagePage, SearchRequest, Statistics
 
 
-def image_payload(record: ImageRecord, detections: list[DetectionRecord], categories: list[str] | None = None) -> Image:
+def image_payload(
+    record: ImageRecord, detections: list[DetectionRecord], categories: list[str] | None = None
+) -> Image:
     matching = [item for item in detections if not categories or item.class_name in categories]
     return Image(
         id=record.id,
@@ -16,7 +18,9 @@ def image_payload(record: ImageRecord, detections: list[DetectionRecord], catego
         file_hash=record.file_hash,
         width=record.width,
         height=record.height,
-        uploaded_at=record.uploaded_at.replace(tzinfo=timezone.utc) if record.uploaded_at.tzinfo is None else record.uploaded_at,
+        uploaded_at=record.uploaded_at.replace(tzinfo=timezone.utc)
+        if record.uploaded_at.tzinfo is None
+        else record.uploaded_at,
         status=record.status,
         model=record.model,
         error=record.error,
@@ -29,7 +33,9 @@ def image_payload(record: ImageRecord, detections: list[DetectionRecord], catego
     )
 
 
-def get_detections(session: Session, image_ids: list[str], confidence: float) -> dict[str, list[DetectionRecord]]:
+def get_detections(
+    session: Session, image_ids: list[str], confidence: float
+) -> dict[str, list[DetectionRecord]]:
     grouped: dict[str, list[DetectionRecord]] = {image_id: [] for image_id in image_ids}
     if image_ids:
         records = session.scalars(
@@ -51,13 +57,21 @@ def search_images(session: Session, query: SearchRequest) -> ImagePage:
 
     category_ids: list[int] = []
     if query.categories:
-        category_ids = list(session.scalars(select(DetectionRecord.class_id).distinct().where(
-            DetectionRecord.class_name.in_(query.categories)
-        )))
+        category_ids = list(
+            session.scalars(
+                select(DetectionRecord.class_id)
+                .distinct()
+                .where(DetectionRecord.class_name.in_(query.categories))
+            )
+        )
         # Unknown categories cannot satisfy AND, and an entirely unknown OR is empty.
-        known_names = set(session.scalars(select(DetectionRecord.class_name).distinct().where(
-            DetectionRecord.class_name.in_(query.categories)
-        )))
+        known_names = set(
+            session.scalars(
+                select(DetectionRecord.class_name)
+                .distinct()
+                .where(DetectionRecord.class_name.in_(query.categories))
+            )
+        )
         if (query.mode == "and" and len(known_names) != len(query.categories)) or not category_ids:
             return ImagePage(items=[], total=0, page=query.page, page_size=query.page_size)
         valid = valid.where(DetectionRecord.class_id.in_(category_ids))
@@ -78,7 +92,9 @@ def search_images(session: Session, query: SearchRequest) -> ImagePage:
         "newest": (ImageRecord.uploaded_at.desc(), ImageRecord.id.asc()),
         "oldest": (ImageRecord.uploaded_at.asc(), ImageRecord.id.asc()),
     }[query.sort]
-    records = session.execute(statement.order_by(*order).offset((query.page - 1) * query.page_size).limit(query.page_size)).all()
+    records = session.execute(
+        statement.order_by(*order).offset((query.page - 1) * query.page_size).limit(query.page_size)
+    ).all()
     detections = get_detections(session, [record.id for record, _ in records], query.confidence)
     return ImagePage(
         items=[image_payload(record, detections[record.id], query.categories) for record, _ in records],
@@ -100,7 +116,9 @@ def categories(session: Session, confidence: float) -> list[Category]:
         .group_by(DetectionRecord.class_id, DetectionRecord.class_name)
         .order_by(DetectionRecord.class_name)
     )
-    return [Category(class_id=row[0], class_name=row[1], image_count=row[2], object_count=row[3]) for row in rows]
+    return [
+        Category(class_id=row[0], class_name=row[1], image_count=row[2], object_count=row[3]) for row in rows
+    ]
 
 
 def statistics(session: Session, confidence: float) -> Statistics:

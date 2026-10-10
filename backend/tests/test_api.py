@@ -17,8 +17,10 @@ from backend.app.models import DetectionRecord
 
 
 def detection(class_id, class_name, confidence, **coordinates):
-    return dict(class_id=class_id, class_name=class_name, confidence=confidence,
-                x1=2, y1=3, x2=24, y2=25) | coordinates
+    return (
+        dict(class_id=class_id, class_name=class_name, confidence=confidence, x1=2, y1=3, x2=24, y2=25)
+        | coordinates
+    )
 
 
 class FakeDetector:
@@ -32,8 +34,15 @@ class FakeDetector:
         self.predictions = None
 
     def status(self):
-        return dict(model=self.model_name, device="cpu", half=False, ready=True,
-                    error=None, hardware={"cuda_available": False}, warnings=[])
+        return dict(
+            model=self.model_name,
+            device="cpu",
+            half=False,
+            ready=True,
+            error=None,
+            hardware={"cuda_available": False},
+            warnings=[],
+        )
 
     def predict(self, path: Path):
         self.calls += 1
@@ -48,11 +57,11 @@ class FakeDetector:
         with PillowImage.open(path) as image:
             red, green, blue = image.getpixel((0, 0))
         if red > 200 and green < 40 and blue < 40:
-            return [detection(0, "person", .90), detection(1, "bicycle", .70), detection(2, "car", .45)]
+            return [detection(0, "person", 0.90), detection(1, "bicycle", 0.70), detection(2, "car", 0.45)]
         if green > 200 and red < 40:
-            return [detection(2, "car", .95), detection(0, "person", .55)]
+            return [detection(2, "car", 0.95), detection(0, "person", 0.55)]
         if blue > 200 and red < 40:
-            return [detection(16, "dog", .85)]
+            return [detection(16, "dog", 0.85)]
         return []
 
 
@@ -70,14 +79,15 @@ def wait_for_job(client, job_id):
         job = response.json()
         if job["status"] in {"completed", "failed"}:
             return job
-        time.sleep(.01)
+        time.sleep(0.01)
     pytest.fail("The indexing job did not finish within six seconds.")
 
 
 def upload(client, images):
-    response = client.post("/api/images/upload", files=[
-        ("files", (filename, image_bytes(color), "image/png")) for filename, color in images
-    ])
+    response = client.post(
+        "/api/images/upload",
+        files=[("files", (filename, image_bytes(color), "image/png")) for filename, color in images],
+    )
     assert response.status_code == 202, response.text
     return wait_for_job(client, response.json()["job_id"])
 
@@ -100,11 +110,13 @@ def test_health_system_and_empty_collection(app_client):
     assert client.get("/api/health").json() == {"status": "ok"}
     system = client.get("/api/system").json()
     assert system["model"] == detector.model_name
-    assert system["detection_confidence"] == .15
+    assert system["detection_confidence"] == 0.15
     assert client.get("/api/images").json()["total"] == 0
     assert client.get("/api/search/categories").json() == []
     assert client.post("/api/search", json={"categories": ["car"]}).json()["items"] == []
-    assert client.get("/api/statistics").json() == dict(total_images=0, total_objects=0, total_categories=0, distribution=[])
+    assert client.get("/api/statistics").json() == dict(
+        total_images=0, total_objects=0, total_categories=0, distribution=[]
+    )
 
 
 def test_valid_upload_persists_metadata_images_and_thumbnail(app_client):
@@ -128,9 +140,14 @@ def test_valid_upload_persists_metadata_images_and_thumbnail(app_client):
         assert session.scalar(select(func.count()).select_from(DetectionRecord)) == 3
 
 
-@pytest.mark.parametrize("filename,payload", [
-    ("malware.exe", image_bytes()), ("broken.png", b"this is not an image"), ("empty.jpg", b""),
-])
+@pytest.mark.parametrize(
+    "filename,payload",
+    [
+        ("malware.exe", image_bytes()),
+        ("broken.png", b"this is not an image"),
+        ("empty.jpg", b""),
+    ],
+)
 def test_invalid_upload_is_rejected_without_stored_files(app_client, filename, payload):
     client, app, detector = app_client
     response = client.post("/api/images/upload", files=[("files", (filename, payload, "image/png"))])
@@ -142,27 +159,45 @@ def test_invalid_upload_is_rejected_without_stored_files(app_client, filename, p
 
 
 def test_upload_size_dimensions_and_batch_limits(configured):
-    settings = configured.model_copy(update={"max_upload_files": 2, "max_file_mb": 1, "max_image_pixels": 100})
+    settings = configured.model_copy(
+        update={"max_upload_files": 2, "max_file_mb": 1, "max_image_pixels": 100}
+    )
     with TestClient(create_app(settings, FakeDetector())) as client:
-        response = client.post("/api/images/upload", files=[("files", ("large.png", b"x" * (1024 * 1024 + 1), "image/png"))])
+        response = client.post(
+            "/api/images/upload", files=[("files", ("large.png", b"x" * (1024 * 1024 + 1), "image/png"))]
+        )
         assert response.status_code == 400
         assert "1 MB" in response.json()["detail"]
-        response = client.post("/api/images/upload", files=[("files", ("huge.png", image_bytes(), "image/png"))])
+        response = client.post(
+            "/api/images/upload", files=[("files", ("huge.png", image_bytes(), "image/png"))]
+        )
         assert response.status_code == 400
         assert "100 pixel" in response.json()["detail"]
-        response = client.post("/api/images/upload", files=[("files", ("x.png", image_bytes(size=(5, 5)), "image/png"))] * 3)
+        response = client.post(
+            "/api/images/upload", files=[("files", ("x.png", image_bytes(size=(5, 5)), "image/png"))] * 3
+        )
         assert response.status_code == 413
 
 
 def test_upload_body_limit_checks_declared_and_streamed_sizes(configured):
     settings = configured.model_copy(update={"max_upload_body_mb": 1})
     with TestClient(create_app(settings, FakeDetector())) as client:
-        response = client.post("/api/images/upload", files=[("files", ("large.png", b"x" * (1024 * 1024), "image/png"))])
+        response = client.post(
+            "/api/images/upload", files=[("files", ("large.png", b"x" * (1024 * 1024), "image/png"))]
+        )
         assert response.status_code == 413
         assert "1 MB request limit" in response.json()["detail"]
-        chunks = [b'--test\r\nContent-Disposition: form-data; name="files"; filename="large.png"\r\nContent-Type: image/png\r\n\r\n',
-                  b"x" * (512 * 1024), b"x" * (512 * 1024), b"\r\n--test--\r\n"]
-        response = client.post("/api/images/upload", content=iter(chunks), headers={"Content-Type": "multipart/form-data; boundary=test"})
+        chunks = [
+            b'--test\r\nContent-Disposition: form-data; name="files"; filename="large.png"\r\nContent-Type: image/png\r\n\r\n',
+            b"x" * (512 * 1024),
+            b"x" * (512 * 1024),
+            b"\r\n--test--\r\n",
+        ]
+        response = client.post(
+            "/api/images/upload",
+            content=iter(chunks),
+            headers={"Content-Type": "multipart/form-data; boundary=test"},
+        )
         assert response.status_code == 413
         assert "1 MB request limit" in response.json()["detail"]
         assert client.get("/api/images").json()["total"] == 0
@@ -180,10 +215,14 @@ def test_duplicate_file_is_indexed_once_even_with_different_filename(app_client)
 
 def test_concurrent_duplicate_uploads(app_client):
     client, _, detector = app_client
+
     def submit(index):
-        response = client.post("/api/images/upload", files=[("files", (f"same-{index}.png", image_bytes(), "image/png"))])
+        response = client.post(
+            "/api/images/upload", files=[("files", (f"same-{index}.png", image_bytes(), "image/png"))]
+        )
         assert response.status_code == 202, response.text
         return response.json()["job_id"]
+
     with ThreadPoolExecutor(max_workers=4) as executor:
         jobs = list(executor.map(submit, range(4)))
     results = [wait_for_job(client, job) for job in jobs]
@@ -195,10 +234,13 @@ def test_concurrent_duplicate_uploads(app_client):
 
 def test_mixed_valid_invalid_upload_reports_partial_failure(app_client):
     client, _, _ = app_client
-    response = client.post("/api/images/upload", files=[
-        ("files", ("valid.png", image_bytes(), "image/png")),
-        ("files", ("invalid.png", b"bad", "image/png")),
-    ])
+    response = client.post(
+        "/api/images/upload",
+        files=[
+            ("files", ("valid.png", image_bytes(), "image/png")),
+            ("files", ("invalid.png", b"bad", "image/png")),
+        ],
+    )
     assert response.status_code == 202
     job = wait_for_job(client, response.json()["job_id"])
     assert (job["uploaded"], job["failed"], job["processed"]) == (1, 1, 2)
@@ -209,11 +251,16 @@ def test_single_multi_object_and_or_and_unknown_search(app_client):
     client, _, detector = app_client
     upload(client, [("bicycle.png", "red"), ("car.png", "lime"), ("dog.png", "blue")])
     calls = detector.calls
-    def search(categories, mode="and", confidence=.5):
-        return client.post("/api/search", json=dict(categories=categories, mode=mode, confidence=confidence)).json()
+
+    def search(categories, mode="and", confidence=0.5):
+        return client.post(
+            "/api/search", json=dict(categories=categories, mode=mode, confidence=confidence)
+        ).json()
+
     assert search(["car"])["items"][0]["filename"] == "car.png"
     both = search([" Person ", "Bicycle"])
     assert both["total"] == 1 and both["items"][0]["matching_count"] == 2
+    assert search(["person", "bicycle"], confidence=0.7)["total"] == 1
     assert search(["person", "dog"])["total"] == 0
     assert search(["person", "dog"], "or")["total"] == 3
     assert search(["person", "unknown"])["total"] == 0
@@ -225,12 +272,24 @@ def test_single_multi_object_and_or_and_unknown_search(app_client):
 def test_confidence_filters_categories_annotations_statistics_and_retrieval(app_client):
     client, _, detector = app_client
     upload(client, [("bicycle.png", "red"), ("car.png", "lime")])
-    assert {category["class_name"] for category in client.get("/api/search/categories?confidence=.8").json()} == {"person", "car"}
-    assert client.post("/api/search", json={"categories": ["person", "car"], "confidence": .5}).json()["total"] == 1
-    assert client.post("/api/search", json={"categories": ["person", "car"], "confidence": .8}).json()["total"] == 0
+    assert {
+        category["class_name"] for category in client.get("/api/search/categories?confidence=.8").json()
+    } == {"person", "car"}
+    assert (
+        client.post("/api/search", json={"categories": ["person", "car"], "confidence": 0.5}).json()["total"]
+        == 1
+    )
+    assert (
+        client.post("/api/search", json={"categories": ["person", "car"], "confidence": 0.8}).json()["total"]
+        == 0
+    )
     stats = client.get("/api/statistics?confidence=.8").json()
     assert (stats["total_images"], stats["total_objects"], stats["total_categories"]) == (2, 2, 2)
-    assert all(detection["confidence"] >= .8 for item in client.get("/api/images?confidence=.8").json()["items"] for detection in item["detections"])
+    assert all(
+        detection["confidence"] >= 0.8
+        for item in client.get("/api/images?confidence=.8").json()["items"]
+        for detection in item["detections"]
+    )
     assert detector.calls == 2
 
 
@@ -238,8 +297,15 @@ def test_confidence_ranking_filename_time_sort_and_pagination(app_client):
     client, _, _ = app_client
     upload(client, [("zebra.png", "red")])
     upload(client, [("Alpha.png", "lime")])
+
     def names(sort, categories=None):
-        return [item["filename"] for item in client.post("/api/search", json=dict(categories=categories or [], sort=sort)).json()["items"]]
+        return [
+            item["filename"]
+            for item in client.post("/api/search", json=dict(categories=categories or [], sort=sort)).json()[
+                "items"
+            ]
+        ]
+
     assert names("confidence_desc") == ["Alpha.png", "zebra.png"]
     assert names("confidence_asc") == ["zebra.png", "Alpha.png"]
     assert names("confidence_desc", ["person"]) == ["zebra.png", "Alpha.png"]
@@ -268,13 +334,22 @@ def test_delete_image_cascades_detections_and_files_then_clear(app_client):
         assert session.scalar(select(func.count()).select_from(DetectionRecord)) == 0
 
 
-def test_failed_inference_is_visible_and_can_be_retried(app_client):
+@pytest.mark.parametrize(
+    "safe_error", [None, "Could not download YOLO weights. Check the internet connection and retry."]
+)
+def test_failed_inference_is_visible_and_can_be_retried(app_client, monkeypatch, safe_error):
     client, _, detector = app_client
+    original_status = detector.status
+    monkeypatch.setattr(detector, "status", lambda: original_status() | {"error": safe_error})
     detector.fail_next = True
     job = upload(client, [("retry.png", "red")])
     assert job["status"] == "failed" and job["failed"] == 1
     image = client.get("/api/images").json()["items"][0]
     assert image["status"] == "failed" and image["error"]
+    if safe_error:
+        assert image["error"] == safe_error
+        assert safe_error in job["errors"][0]
+    monkeypatch.setattr(detector, "status", original_status)
     response = client.post(f"/api/images/{image['id']}/retry")
     assert response.status_code == 202
     assert wait_for_job(client, response.json()["job_id"])["uploaded"] == 1
@@ -287,7 +362,9 @@ def test_delete_during_inference_does_not_resurrect_image(app_client, clear):
     client, _, detector = app_client
     detector.release = threading.Event()
     try:
-        response = client.post("/api/images/upload", files=[("files", ("active.png", image_bytes(), "image/png"))])
+        response = client.post(
+            "/api/images/upload", files=[("files", ("active.png", image_bytes(), "image/png"))]
+        )
         assert detector.started.wait(timeout=3)
         image = client.get("/api/images").json()["items"][0]
         path = "/api/images" if clear else f"/api/images/{image['id']}"
@@ -296,7 +373,7 @@ def test_delete_during_inference_does_not_resurrect_image(app_client, clear):
         detector.release.set()
     job = wait_for_job(client, response.json()["job_id"])
     assert job["processed"] == job["total"] == 1
-    time.sleep(.03)
+    time.sleep(0.03)
     assert client.get("/api/images").json()["total"] == 0
     assert client.get("/api/statistics").json()["total_objects"] == 0
 
@@ -305,10 +382,16 @@ def test_pending_queue_is_bounded(configured):
     detector = FakeDetector()
     detector.release = threading.Event()
     try:
-        with TestClient(create_app(configured.model_copy(update={"max_pending_images": 1}), detector)) as client:
-            first = client.post("/api/images/upload", files=[("files", ("first.png", image_bytes(), "image/png"))])
+        with TestClient(
+            create_app(configured.model_copy(update={"max_pending_images": 1}), detector)
+        ) as client:
+            first = client.post(
+                "/api/images/upload", files=[("files", ("first.png", image_bytes(), "image/png"))]
+            )
             assert first.status_code == 202
-            second = client.post("/api/images/upload", files=[("files", ("second.png", image_bytes("blue"), "image/png"))])
+            second = client.post(
+                "/api/images/upload", files=[("files", ("second.png", image_bytes("blue"), "image/png"))]
+            )
             assert second.status_code == 429
             detector.release.set()
             wait_for_job(client, first.json()["job_id"])
@@ -321,7 +404,9 @@ def test_persistence_and_recovery_of_queued_jobs(configured):
     with TestClient(create_app(configured, detector)) as client:
         upload(client, [("persisted.png", "red")])
         client.app.state.indexer.stop()
-        response = client.post("/api/images/upload", files=[("files", ("pending.png", image_bytes("blue"), "image/png"))])
+        response = client.post(
+            "/api/images/upload", files=[("files", ("pending.png", image_bytes("blue"), "image/png"))]
+        )
         pending_id = response.json()["job_id"]
     with TestClient(create_app(configured, FakeDetector())) as restarted:
         assert wait_for_job(restarted, pending_id)["uploaded"] == 1
@@ -331,14 +416,19 @@ def test_persistence_and_recovery_of_queued_jobs(configured):
 
 def test_filename_safety_exif_orientation_and_detection_clipping(app_client):
     client, _, detector = app_client
-    detector.predictions = [detection(0, "Person", .9, x1=-50, y1=-10, x2=500, y2=500),
-                            detection(1, "bicycle", float("nan")), detection(2, "car", .1)]
+    detector.predictions = [
+        detection(0, "Person", 0.9, x1=-50, y1=-10, x2=500, y2=500),
+        detection(1, "bicycle", float("nan")),
+        detection(2, "car", 0.1),
+    ]
     image = PillowImage.new("RGB", (20, 40), "red")
     exif = PillowImage.Exif()
     exif[274] = 6
     buffer = BytesIO()
     image.save(buffer, format="JPEG", exif=exif)
-    response = client.post("/api/images/upload", files=[("files", ("../../unsafe.jpg", buffer.getvalue(), "image/jpeg"))])
+    response = client.post(
+        "/api/images/upload", files=[("files", ("../../unsafe.jpg", buffer.getvalue(), "image/jpeg"))]
+    )
     assert response.status_code == 202
     wait_for_job(client, response.json()["job_id"])
     item = client.get("/api/images").json()["items"][0]
@@ -364,7 +454,9 @@ def test_request_errors_are_readable_and_unknown_ids_are_not_found(app_client):
 
 def test_production_frontend_is_served_without_masking_api_errors(configured):
     configured.frontend_dist.mkdir()
-    (configured.frontend_dist / "index.html").write_text("<html>Visual Object Retrieval</html>", encoding="utf-8")
+    (configured.frontend_dist / "index.html").write_text(
+        "<html>Visual Object Retrieval</html>", encoding="utf-8"
+    )
     with TestClient(create_app(configured, FakeDetector())) as client:
         assert "Visual Object Retrieval" in client.get("/").text
         assert client.get("/collection").status_code == 200
