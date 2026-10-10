@@ -1,0 +1,13 @@
+# Install an appropriate PyTorch/torchvision build first; see README.md.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+python-multipart>=0.0.20,<1
+sqlalchemy>=2.0.38,<3
+pydantic>=2.10,<3
+pydantic-settings>=2.8,<3
+ultralytics==8.4.175
+torch>=2.6,<3
+torchvision>=0.21,<1
+opencv-python>=4.11,<5
+Pillow>=11.1,<13
+numpy>=2.1,<3
