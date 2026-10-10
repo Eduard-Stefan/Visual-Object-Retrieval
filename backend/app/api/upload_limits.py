@@ -18,20 +18,10 @@ class UploadBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        for key, value in scope.get("headers", []):
-            if key.lower() == b"content-length":
-                try:
-                    length = int(value)
-                except ValueError:
-                    response = JSONResponse(
-                        {"detail": "The upload has an invalid Content-Length header."}, status_code=400
-                    )
-                    await response(scope, receive, send)
-                    return
-                if length > self.maximum:
-                    response = JSONResponse({"detail": self.message}, status_code=413)
-                    await response(scope, receive, send)
-                    return
+        response = self.check_content_length(scope.get("headers", []))
+        if response is not None:
+            await response(scope, receive, send)
+            return
 
         received = 0
         exceeded = False
@@ -53,3 +43,17 @@ class UploadBodyLimitMiddleware:
             await send(message)
 
         await self.app(scope, limited_receive, limited_send)
+
+    def check_content_length(self, headers: list[tuple[bytes, bytes]]) -> JSONResponse | None:
+        for key, value in headers:
+            if key.lower() != b"content-length":
+                continue
+            try:
+                length = int(value)
+            except ValueError:
+                return JSONResponse(
+                    {"detail": "The upload has an invalid Content-Length header."}, status_code=400
+                )
+            if length > self.maximum:
+                return JSONResponse({"detail": self.message}, status_code=413)
+        return None

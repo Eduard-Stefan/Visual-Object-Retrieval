@@ -1,7 +1,10 @@
 import { AlertCircle, ArrowRight, ImagePlus, LoaderCircle, SearchX, ScanLine } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-export function ErrorNotice({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function ErrorNotice({
+  message,
+  onRetry,
+}: Readonly<{ message: string; onRetry?: () => void }>) {
   return (
     <div className="error-notice" role="alert">
       <AlertCircle size={18} />
@@ -23,13 +26,14 @@ export function EmptyState({
   title,
   children,
   onUpload,
-}: {
+}: Readonly<{
   type: 'collection' | 'search' | 'objects';
   title: string;
   children: ReactNode;
   onUpload?: () => void;
-}) {
-  const Icon = type === 'collection' ? ImagePlus : type === 'search' ? SearchX : ScanLine;
+}>) {
+  const icons = { collection: ImagePlus, search: SearchX, objects: ScanLine };
+  const Icon = icons[type];
   return (
     <div className="empty-state">
       <div className="empty-illustration">
@@ -63,7 +67,7 @@ export function GallerySkeleton() {
   );
 }
 
-export function Spinner({ children }: { children?: ReactNode }) {
+export function Spinner({ children }: Readonly<{ children?: ReactNode }>) {
   return (
     <span className="spinner-label">
       <LoaderCircle size={16} className="spin" />

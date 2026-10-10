@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Category, SearchMode, SortOrder } from '../../types';
 import { label, percent } from '../../lib/format';
 
-export interface SearchPanelProps {
+export type SearchPanelProps = Readonly<{
   categories: Category[];
   selected: string[];
   onSelected: (value: string[]) => void;
@@ -20,15 +20,25 @@ export interface SearchPanelProps {
   onReset: () => void;
   loading: boolean;
   searching: boolean;
+}>;
+
+function multipleSelectionLabel(selectedCount: number, loading: boolean) {
+  if (selectedCount > 0) return `${selectedCount} object categories selected`;
+  return loading ? 'Loading categories…' : 'Choose object categories';
+}
+
+function singleSelectionPlaceholder(categoryCount: number, loading: boolean) {
+  if (loading) return 'Loading categories…';
+  return categoryCount > 0 ? 'Choose an object to search' : 'No objects detected yet';
 }
 
 export function SortSelect({
   value,
   onChange,
-}: {
+}: Readonly<{
   value: SortOrder;
   onChange: (value: SortOrder) => void;
-}) {
+}>) {
   return (
     <div className="select-wrapper">
       <select
@@ -51,6 +61,7 @@ export function SortSelect({
 export function SearchPanel(props: SearchPanelProps) {
   const [open, setOpen] = useState(false);
   const popup = useRef<HTMLDivElement>(null);
+  const selectionLabel = multipleSelectionLabel(props.selected.length, props.loading);
   useEffect(() => {
     function outside(event: MouseEvent) {
       if (!popup.current?.contains(event.target as Node)) setOpen(false);
@@ -88,18 +99,19 @@ export function SearchPanel(props: SearchPanelProps) {
               if (!event.target.checked) props.onSelected(props.selected.slice(0, 1));
             }}
           />
-          <span className="switch-track" />
-          Advanced Search
+          <span className="switch-track" /> Advanced Search
         </label>
       </div>
       <div className="search-controls">
         <div className="object-field field">
-          <label htmlFor={props.advanced ? undefined : 'object-select'}>
+          <label htmlFor={props.advanced ? 'object-select-trigger' : 'object-select'}>
             {props.advanced ? 'Select Objects' : 'Select an Object'}
           </label>
           {props.advanced ? (
             <div className="multi-select" ref={popup}>
               <button
+                id="object-select-trigger"
+                aria-label={selectionLabel}
                 className="multi-select-trigger"
                 onClick={() => setOpen(!open)}
                 aria-expanded={open}
@@ -107,20 +119,13 @@ export function SearchPanel(props: SearchPanelProps) {
                 disabled={props.loading || !props.categories.length}
               >
                 <Search size={16} />
-                <span>
-                  {props.selected.length
-                    ? `${props.selected.length} object categories selected`
-                    : props.loading
-                      ? 'Loading categories…'
-                      : 'Choose object categories'}
-                </span>
+                <span>{selectionLabel}</span>
                 <ChevronDown size={16} />
               </button>
               {open && (
-                <div
+                <fieldset
                   className="multi-select-options"
                   id="object-options"
-                  role="group"
                   aria-label="Object categories"
                 >
                   {props.categories.map((category) => (
@@ -134,7 +139,7 @@ export function SearchPanel(props: SearchPanelProps) {
                       <small>{category.image_count} images</small>
                     </label>
                   ))}
-                </div>
+                </fieldset>
               )}
             </div>
           ) : (
@@ -149,11 +154,7 @@ export function SearchPanel(props: SearchPanelProps) {
                 }
               >
                 <option value="">
-                  {props.loading
-                    ? 'Loading categories…'
-                    : props.categories.length
-                      ? 'Choose an object to search'
-                      : 'No objects detected yet'}
+                  {singleSelectionPlaceholder(props.categories.length, props.loading)}
                 </option>
                 {props.categories.map((category) => (
                   <option key={category.class_name} value={category.class_name}>

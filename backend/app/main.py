@@ -18,9 +18,7 @@ from .services.indexing import Detector, IndexingService
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None, engine: Detector | None = None) -> FastAPI:
-    configuration = settings or Settings()
-
+def application_lifespan(configuration: Settings, engine: Detector | None):
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         database = Database(configuration)
@@ -43,38 +41,25 @@ def create_app(settings: Settings | None = None, engine: Detector | None = None)
             if not indexer.thread or not indexer.thread.is_alive():
                 database.engine.dispose()
 
-    application = FastAPI(
-        title="Visual Object Retrieval",
-        description="Persistent YOLO object indexing and semantic image retrieval.",
-        version="1.0.0",
-        lifespan=lifespan,
+    return lifespan
+
+
+def invalid_request(_request: Request, error: RequestValidationError):
+    messages = [
+        f"{'.'.join(str(part) for part in entry['loc'][1:])}: {entry['msg']}" for entry in error.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": "Invalid request. " + " ".join(messages[:3])})
+
+
+def unexpected_error(_request: Request, error: Exception):
+    logger.exception("Unexpected API error", exc_info=error)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "The request could not be completed. Check the backend log and try again."},
     )
-    application.state.settings = configuration
-    application.add_middleware(UploadBodyLimitMiddleware, max_body_mb=configuration.max_upload_body_mb)
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=configuration.cors_origins,
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Content-Type"],
-    )
-    application.include_router(router)
 
-    @application.exception_handler(RequestValidationError)
-    async def invalid_request(_request: Request, error: RequestValidationError):
-        messages = [
-            f"{'.'.join(str(part) for part in entry['loc'][1:])}: {entry['msg']}" for entry in error.errors()
-        ]
-        return JSONResponse(status_code=422, content={"detail": "Invalid request. " + " ".join(messages[:3])})
 
-    @application.exception_handler(Exception)
-    async def unexpected_error(_request: Request, error: Exception):
-        logger.exception("Unexpected API error", exc_info=error)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "The request could not be completed. Check the backend log and try again."},
-        )
-
+def register_frontend(application: FastAPI, configuration: Settings):
     @application.get("/", include_in_schema=False)
     def home():
         index = configuration.frontend_dist / "index.html"
@@ -100,6 +85,29 @@ def create_app(settings: Settings | None = None, engine: Detector | None = None)
             return FileResponse(index, headers={"Cache-Control": "no-cache"})
         raise HTTPException(404, "This page was not found.")
 
+
+def create_app(settings: Settings | None = None, engine: Detector | None = None) -> FastAPI:
+    configuration = settings or Settings()
+    application = FastAPI(
+        title="Visual Object Retrieval",
+        description="Persistent YOLO object indexing and semantic image retrieval.",
+        version="1.0.0",
+        lifespan=application_lifespan(configuration, engine),
+    )
+    application.state.settings = configuration
+    application.add_middleware(UploadBodyLimitMiddleware, max_body_mb=configuration.max_upload_body_mb)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=configuration.cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
+    application.include_router(router)
+
+    application.add_exception_handler(RequestValidationError, invalid_request)
+    application.add_exception_handler(Exception, unexpected_error)
+    register_frontend(application, configuration)
     return application
 
 

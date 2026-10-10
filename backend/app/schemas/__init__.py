@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 SortOrder = Literal["confidence_desc", "confidence_asc", "filename", "newest", "oldest"]
 
 
+class APIError(BaseModel):
+    detail: str
+
+
 class Detection(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

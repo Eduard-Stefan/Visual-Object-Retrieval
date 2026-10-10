@@ -8,7 +8,7 @@ import re
 import unicodedata
 import warnings
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
 from ..core.config import Settings
 
@@ -61,7 +61,6 @@ def prepare_image(filename: str | None, payload: bytes, settings: Settings) -> P
                 else:
                     normalized = oriented.convert("RGB")
     except (
-        UnidentifiedImageError,
         OSError,
         SyntaxError,
         Image.DecompressionBombError,

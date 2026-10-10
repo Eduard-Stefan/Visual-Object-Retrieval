@@ -8,14 +8,14 @@ export function AnnotatedImage({
   selected = [],
   showOthers = true,
   original = false,
-}: {
+}: Readonly<{
   image: IndexedImage;
   confidence: number;
   annotated: boolean;
   selected?: string[];
   showOthers?: boolean;
   original?: boolean;
-}) {
+}>) {
   const detections = image.detections.filter(
     (detection) =>
       detection.confidence >= confidence &&

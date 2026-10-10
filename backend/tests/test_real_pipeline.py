@@ -41,7 +41,8 @@ def test_real_photographs_are_indexed_searched_and_persisted(tmp_path):
                 break
             time.sleep(0.05)
         assert job["status"] == "completed", job
-        assert job["uploaded"] == 2 and job["failed"] == 0, job
+        assert job["uploaded"] == 2, job
+        assert job["failed"] == 0, job
         indexed_ids = {image["id"] for image in client.get("/api/images").json()["items"]}
         before = client.get("/api/system").json()["last_inference_ms"]
         single = client.post("/api/search", json={"categories": ["bus"], "confidence": 0.5}).json()
@@ -49,7 +50,8 @@ def test_real_photographs_are_indexed_searched_and_persisted(tmp_path):
         assert single["items"][0]["filename"] == "bus.jpg"
         conjunction = client.post("/api/search", json={"categories": ["person", "bus"], "mode": "and"}).json()
         disjunction = client.post("/api/search", json={"categories": ["person", "bus"], "mode": "or"}).json()
-        assert conjunction["total"] == 1 and disjunction["total"] == 2
+        assert conjunction["total"] == 1
+        assert disjunction["total"] == 2
         assert client.get("/api/statistics?confidence=1").json()["total_objects"] == 0
         assert client.get("/api/system").json()["last_inference_ms"] == before
         for image in disjunction["items"]:

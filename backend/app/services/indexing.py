@@ -16,6 +16,7 @@ from ..database import Database
 from ..models import DetectionRecord, ImageRecord, JobRecord
 from .image_processing import (
     GENERATED_FILENAME,
+    PreparedImage,
     prepare_image,
     remove_stored_image,
     safe_filename,
@@ -122,58 +123,7 @@ class IndexingService:
             job_id = job.id
 
         for upload in files:
-            prepared = None
-            try:
-                payload = upload.file.read(self.settings.max_file_mb * 1024 * 1024 + 1)
-                prepared = prepare_image(upload.filename, payload, self.settings)
-                del payload
-                with self.lock, self.database.session.begin() as session:
-                    job = session.get(JobRecord, job_id)
-                    if job.status != "uploading":
-                        raise HTTPException(
-                            409,
-                            "The collection was cleared during the upload. Please upload the images again.",
-                        )
-                    duplicate = session.scalar(
-                        select(ImageRecord.id).where(ImageRecord.file_hash == prepared.file_hash)
-                    )
-                    if duplicate:
-                        job.processed += 1
-                        job.duplicates += 1
-                    else:
-                        image_id = str(uuid4())
-                        stored_filename = f"{image_id}.jpg"
-                        store_image(prepared, stored_filename, self.settings)
-                        session.add(
-                            ImageRecord(
-                                id=image_id,
-                                filename=prepared.filename,
-                                stored_filename=stored_filename,
-                                file_hash=prepared.file_hash,
-                                width=prepared.image.width,
-                                height=prepared.image.height,
-                                status="queued",
-                                job_id=job_id,
-                            )
-                        )
-            except HTTPException:
-                raise
-            except Exception as error:
-                if isinstance(error, ValueError):
-                    message = str(error)
-                else:
-                    logger.exception("Could not store uploaded image")
-                    message = "The image could not be stored. Check that the data directory has free space and is writable."
-                with self.lock, self.database.session.begin() as session:
-                    job = session.get(JobRecord, job_id)
-                    if job.status == "uploading":
-                        job.processed += 1
-                        job.failed += 1
-                        job.errors = [*job.errors, f"{safe_filename(upload.filename)}: {message}"]
-            finally:
-                if prepared:
-                    prepared.image.close()
-                upload.file.close()
+            self._accept_file(job_id, upload)
 
         with self.lock, self.database.session.begin() as session:
             job = session.get(JobRecord, job_id)
@@ -189,6 +139,63 @@ class IndexingService:
         if no_valid_images:
             raise HTTPException(400, "No valid images were uploaded. " + " ".join(errors[:3]))
         return job
+
+    def _store_prepared_upload(self, job_id: str, prepared: PreparedImage) -> None:
+        with self.lock, self.database.session.begin() as session:
+            job = session.get(JobRecord, job_id)
+            if job.status != "uploading":
+                raise HTTPException(
+                    409,
+                    "The collection was cleared during the upload. Please upload the images again.",
+                )
+            duplicate = session.scalar(
+                select(ImageRecord.id).where(ImageRecord.file_hash == prepared.file_hash)
+            )
+            if duplicate:
+                job.processed += 1
+                job.duplicates += 1
+                return
+            image_id = str(uuid4())
+            stored_filename = f"{image_id}.jpg"
+            store_image(prepared, stored_filename, self.settings)
+            session.add(
+                ImageRecord(
+                    id=image_id,
+                    filename=prepared.filename,
+                    stored_filename=stored_filename,
+                    file_hash=prepared.file_hash,
+                    width=prepared.image.width,
+                    height=prepared.image.height,
+                    status="queued",
+                    job_id=job_id,
+                )
+            )
+
+    def _accept_file(self, job_id: str, upload: UploadFile) -> None:
+        prepared = None
+        try:
+            payload = upload.file.read(self.settings.max_file_mb * 1024 * 1024 + 1)
+            prepared = prepare_image(upload.filename, payload, self.settings)
+            del payload
+            self._store_prepared_upload(job_id, prepared)
+        except HTTPException:
+            raise
+        except Exception as error:
+            if isinstance(error, ValueError):
+                message = str(error)
+            else:
+                logger.exception("Could not store uploaded image")
+                message = "The image could not be stored. Check that the data directory has free space and is writable."
+            with self.lock, self.database.session.begin() as session:
+                job = session.get(JobRecord, job_id)
+                if job.status == "uploading":
+                    job.processed += 1
+                    job.failed += 1
+                    job.errors = [*job.errors, f"{safe_filename(upload.filename)}: {message}"]
+        finally:
+            if prepared:
+                prepared.image.close()
+            upload.file.close()
 
     def retry(self, image_id: str) -> JobRecord:
         with self.lock, self.database.session.begin() as session:
@@ -264,63 +271,72 @@ class IndexingService:
             except Exception:
                 logger.exception("Indexing worker encountered a recoverable storage error")
                 if job_id:
-                    try:
-                        with self.lock, self.database.session.begin() as session:
-                            job = session.get(JobRecord, job_id)
-                            if job and job.status == "processing":
-                                job.status = "queued"
-                                for image in session.scalars(
-                                    select(ImageRecord).where(
-                                        ImageRecord.job_id == job_id, ImageRecord.status == "processing"
-                                    )
-                                ):
-                                    image.status = "queued"
-                    except Exception:
-                        logger.exception("Could not requeue the interrupted indexing transaction")
+                    self._requeue_job(job_id)
             self.wake.wait(timeout=0.5)
             self.wake.clear()
 
-    def _process_job(self, job_id: str) -> None:
-        while not self.stopping.is_set():
+    def _requeue_job(self, job_id: str) -> None:
+        try:
             with self.lock, self.database.session.begin() as session:
                 job = session.get(JobRecord, job_id)
-                if not job or job.status not in {"queued", "processing"}:
-                    return
-                image = session.scalar(
-                    select(ImageRecord)
-                    .where(ImageRecord.job_id == job_id, ImageRecord.status == "queued")
-                    .order_by(ImageRecord.uploaded_at, ImageRecord.id)
-                    .limit(1)
-                )
-                if not image:
-                    remaining = max(job.total - job.processed, 0)
-                    if remaining:
-                        job.failed += remaining
-                        job.processed += remaining
-                        job.errors = [*job.errors, "Some images were removed before indexing completed."]
-                    finish_job(job)
-                    return
-                image.status = "processing"
-                job.status = "processing"
-                image_id, stored_filename = image.id, image.stored_filename
-                width, height = image.width, image.height
+                if job and job.status == "processing":
+                    job.status = "queued"
+                    for image in session.scalars(
+                        select(ImageRecord).where(
+                            ImageRecord.job_id == job_id, ImageRecord.status == "processing"
+                        )
+                    ):
+                        image.status = "queued"
+        except Exception:
+            logger.exception("Could not requeue the interrupted indexing transaction")
 
-            error_message = None
-            detections = []
+    def _claim_image(self, job_id: str) -> ImageRecord | None:
+        with self.lock, self.database.session.begin() as session:
+            job = session.get(JobRecord, job_id)
+            if not job or job.status not in {"queued", "processing"}:
+                return None
+            image = session.scalar(
+                select(ImageRecord)
+                .where(ImageRecord.job_id == job_id, ImageRecord.status == "queued")
+                .order_by(ImageRecord.uploaded_at, ImageRecord.id)
+                .limit(1)
+            )
+            if not image:
+                remaining = max(job.total - job.processed, 0)
+                if remaining:
+                    job.failed += remaining
+                    job.processed += remaining
+                    job.errors = [*job.errors, "Some images were removed before indexing completed."]
+                finish_job(job)
+                return None
+            image.status = "processing"
+            job.status = "processing"
+            return image
+
+    def _detect_image(self, image: ImageRecord) -> tuple[list[dict], str | None]:
+        try:
+            predictions = self.detector.predict(self.settings.images_dir / image.stored_filename)
+            return self._validated_detections(predictions, image.width, image.height), None
+        except Exception:
+            logger.exception("Object detection failed for image %s", image.id)
+            error_message = (
+                "Object detection failed. Check the model and device settings, then retry this image."
+            )
             try:
-                predictions = self.detector.predict(self.settings.images_dir / stored_filename)
-                detections = self._validated_detections(predictions, width, height)
+                safe_error = self.detector.status().get("error")
+                if isinstance(safe_error, str) and safe_error:
+                    error_message = safe_error
             except Exception:
-                logger.exception("Object detection failed for image %s", image_id)
-                error_message = (
-                    "Object detection failed. Check the model and device settings, then retry this image."
-                )
-                try:
-                    safe_error = self.detector.status().get("error")
-                    if isinstance(safe_error, str) and safe_error:
-                        error_message = safe_error
-                except Exception:
-                    logger.exception("Could not inspect detector failure status")
+                logger.exception("Could not inspect detector failure status")
+            return [], error_message
+
+    def _process_job(self, job_id: str) -> None:
+        while not self.stopping.is_set():
+            image = self._claim_image(job_id)
+            if image is None:
+                return
+            image_id = image.id
+            detections, error_message = self._detect_image(image)
 
             with self.lock, self.database.session.begin() as session:
                 image = session.get(ImageRecord, image_id)
@@ -367,14 +383,14 @@ class IndexingService:
             if class_id < 0 or not class_name or len(class_name) > 80 or x2 <= x1 or y2 <= y1:
                 continue
             detections.append(
-                dict(
-                    class_id=class_id,
-                    class_name=class_name,
-                    confidence=confidence,
-                    x1=x1,
-                    y1=y1,
-                    x2=x2,
-                    y2=y2,
-                )
+                {
+                    "class_id": class_id,
+                    "class_name": class_name,
+                    "confidence": confidence,
+                    "x1": x1,
+                    "y1": y1,
+                    "x2": x2,
+                    "y2": y2,
+                }
             )
         return detections

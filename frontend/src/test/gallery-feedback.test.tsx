@@ -112,7 +112,7 @@ describe('loading, progress, empty, and failure states', () => {
   it('reports processing progress accessibly without allowing dismissal of active work', () => {
     render(<ProcessingStatus job={processingJob} onDismiss={vi.fn()} />);
     expect(screen.getByRole('progressbar', { name: 'Image processing progress' })).toHaveAttribute(
-      'aria-valuenow',
+      'value',
       '25',
     );
     expect(screen.getByText(/1 of 4 images processed/)).toBeInTheDocument();

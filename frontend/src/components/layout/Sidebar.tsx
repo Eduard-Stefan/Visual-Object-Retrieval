@@ -13,6 +13,21 @@ import {
 } from 'lucide-react';
 import type { SystemInfo, View } from '../../types';
 
+function engineDescription(system?: SystemInfo) {
+  if (system?.ready) return `${system.device.toUpperCase()}${system.half ? ' · FP16' : ' · FP32'}`;
+  if (system?.error) return 'Detection needs attention';
+  return system ? 'Loads on first upload' : 'Connecting to backend';
+}
+
+function NavigationIndicator({
+  value,
+  view,
+  total,
+}: Readonly<{ value: View; view: View; total?: number }>) {
+  if (value === 'collection' && total !== undefined) return <small>{total}</small>;
+  return view === value ? <ChevronRight size={14} /> : null;
+}
+
 export function Sidebar({
   view,
   onView,
@@ -20,14 +35,14 @@ export function Sidebar({
   processing,
   system,
   total,
-}: {
+}: Readonly<{
   view: View;
   onView: (value: View) => void;
   onUpload: () => void;
   processing: boolean;
   system?: SystemInfo;
   total?: number;
-}) {
+}>) {
   const nav = [
     { value: 'search' as const, label: 'Visual Search', Icon: Search },
     { value: 'collection' as const, label: 'Image Collection', Icon: Images },
@@ -35,13 +50,10 @@ export function Sidebar({
   ];
   return (
     <aside className="sidebar">
-      <a
+      <button
         className="brand"
-        href="#"
-        onClick={(event) => {
-          event.preventDefault();
-          onView('search');
-        }}
+        type="button"
+        onClick={() => onView('search')}
         aria-label="Visual Object Retrieval home"
       >
         <span className="brand-icon">
@@ -50,7 +62,7 @@ export function Sidebar({
         <span>
           Visual<span className="brand-second">Object Retrieval</span>
         </span>
-      </a>
+      </button>
       <span className="workspace-label">YOUR WORKSPACE</span>
       <nav aria-label="Main navigation">
         {nav.map(({ value, label, Icon }) => (
@@ -62,11 +74,7 @@ export function Sidebar({
           >
             <Icon size={18} />
             <span>{label}</span>
-            {value === 'collection' && total !== undefined ? (
-              <small>{total}</small>
-            ) : view === value ? (
-              <ChevronRight size={14} />
-            ) : null}
+            <NavigationIndicator value={value} view={view} total={total} />
           </button>
         ))}
       </nav>
@@ -102,13 +110,7 @@ export function Sidebar({
             </strong>
             <span>
               <Cpu size={11} />
-              {system?.ready
-                ? `${system.device.toUpperCase()}${system.half ? ' · FP16' : ' · FP32'}`
-                : system?.error
-                  ? 'Detection needs attention'
-                  : system
-                    ? 'Loads on first upload'
-                    : 'Connecting to backend'}
+              {engineDescription(system)}
             </span>
           </div>
           <span className="model-card-icon">

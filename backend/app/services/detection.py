@@ -67,6 +67,51 @@ class DetectionEngine:
             self.warnings.append(message)
             logger.warning(message)
 
+    def _inspect_hardware(self, torch, index):
+        hardware = {
+            "torch_version": torch.__version__,
+            "cuda_version": torch.version.cuda,
+            "cuda_available": torch.cuda.is_available(),
+        }
+        if not hardware["cuda_available"]:
+            return hardware, None, None
+        if index >= torch.cuda.device_count():
+            raise DetectionError("The configured CUDA device does not exist. Set VOR_DEVICE=auto or cpu.")
+        try:
+            properties = torch.cuda.get_device_properties(index)
+            free, total = torch.cuda.mem_get_info(index)
+            hardware.update(
+                {
+                    "gpu_name": properties.name,
+                    "total_vram_mb": round(total / 2**20),
+                    "free_vram_mb": round(free / 2**20),
+                    "compute_capability": f"{properties.major}.{properties.minor}",
+                }
+            )
+            return hardware, properties, None
+        except Exception:
+            # Even a nominally available CUDA driver can fail during
+            # initialization. Explicit CPU configuration must still work.
+            logger.exception("CUDA hardware inspection failed; using CPU fallback")
+            hardware["cuda_available"] = False
+            return hardware, None, "CUDA hardware initialization failed; GPU information is unavailable."
+
+    @staticmethod
+    def _device_options(torch, requested, index, hardware, properties, warning):
+        cuda_index = requested.removeprefix("cuda:")
+        mps = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+        if requested == "cpu":
+            return "cpu", False, warning
+        if (requested in {"auto", "cuda"} or cuda_index.isdecimal()) and hardware["cuda_available"]:
+            return f"cuda:{index}", properties.major >= 6, warning
+        if requested in {"auto", "mps"} and mps:
+            return "mps", False, warning
+        return (
+            "cpu",
+            False,
+            warning or "GPU acceleration is unavailable for this PyTorch build. Using CPU inference.",
+        )
+
     def _configure(self):
         with self._configuration_lock:
             if self._torch is not None:
@@ -80,51 +125,10 @@ class DetectionEngine:
                     "The inference device is invalid. Use auto, cpu, mps, cuda, or a CUDA index such as cuda:0."
                 )
             index = int(cuda_index) if cuda_index.isdecimal() else 0
-            cuda_available = torch.cuda.is_available()
-            hardware = {
-                "torch_version": torch.__version__,
-                "cuda_version": torch.version.cuda,
-                "cuda_available": cuda_available,
-            }
-            warning = None
-            properties = None
-            if cuda_available:
-                if index >= torch.cuda.device_count():
-                    raise DetectionError(
-                        "The configured CUDA device does not exist. Set VOR_DEVICE=auto or cpu."
-                    )
-                try:
-                    properties = torch.cuda.get_device_properties(index)
-                    free, total = torch.cuda.mem_get_info(index)
-                    hardware.update(
-                        {
-                            "gpu_name": properties.name,
-                            "total_vram_mb": round(total / 2**20),
-                            "free_vram_mb": round(free / 2**20),
-                            "compute_capability": f"{properties.major}.{properties.minor}",
-                        }
-                    )
-                except Exception:
-                    # Even a nominally available CUDA driver can fail during
-                    # initialization. Explicit CPU configuration must still work.
-                    logger.exception("CUDA hardware inspection failed; using CPU fallback")
-                    cuda_available = False
-                    hardware["cuda_available"] = False
-                    warning = "CUDA hardware initialization failed; GPU information is unavailable."
-            mps = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
-            half = False
-            if requested == "cpu":
-                device = "cpu"
-            elif (requested in {"auto", "cuda"} or cuda_index.isdecimal()) and cuda_available:
-                device = f"cuda:{index}"
-                half = properties.major >= 6
-            elif requested in {"auto", "mps"} and mps:
-                device = "mps"
-            else:
-                device = "cpu"
-                warning = (
-                    warning or "GPU acceleration is unavailable for this PyTorch build. Using CPU inference."
-                )
+            hardware, properties, warning = self._inspect_hardware(torch, index)
+            device, half, warning = self._device_options(
+                torch, requested, index, hardware, properties, warning
+            )
             if device == "cpu":
                 torch.set_num_threads(min(4, os.cpu_count() or 1))
 
@@ -220,6 +224,29 @@ class DetectionEngine:
         self.error = None
         return output
 
+    def _recover_acceleration(self, error: RuntimeError, attempt: int) -> bool:
+        message = str(error).lower()
+        accelerated = self.device.startswith("cuda") or self.device == "mps"
+        accelerator_error = accelerated and any(
+            term in message for term in ("cuda", "cudnn", "cublas", "mps", "metal", "out of memory")
+        )
+        if attempt == 2 or not accelerator_error:
+            return False
+        # Failed prediction frames may retain GPU tensors. Drop the traceback
+        # before releasing the cached model.
+        error.__traceback__ = None
+        self._release()
+        if "out of memory" in message and self.model_name != self.settings.fallback_model:
+            self.model_name = self.settings.fallback_model
+            self._warn(f"GPU memory was exhausted. Retrying with {self.model_name}.")
+        else:
+            with self._configuration_lock:
+                self.device = "cpu"
+                self.half = False
+            self._torch.set_num_threads(min(4, os.cpu_count() or 1))
+            self._warn("GPU inference failed. Retrying on CPU; inference may be slower.")
+        return True
+
     def predict(self, path: Path) -> list[dict]:
         with self._lock:
             try:
@@ -231,28 +258,8 @@ class DetectionEngine:
                     except DetectionError:
                         raise
                     except RuntimeError as exc:
-                        message = str(exc).lower()
-                        oom = "out of memory" in message
-                        accelerated = self.device.startswith("cuda") or self.device == "mps"
-                        accelerator_error = accelerated and any(
-                            term in message
-                            for term in ("cuda", "cudnn", "cublas", "mps", "metal", "out of memory")
-                        )
-                        if attempt == 2 or not accelerator_error:
+                        if not self._recover_acceleration(exc, attempt):
                             raise
-                        # Failed prediction frames may retain GPU tensors. Drop
-                        # the traceback before releasing the cached model.
-                        exc.__traceback__ = None
-                        self._release()
-                        if oom and self.model_name != self.settings.fallback_model:
-                            self.model_name = self.settings.fallback_model
-                            self._warn(f"GPU memory was exhausted. Retrying with {self.model_name}.")
-                        else:
-                            with self._configuration_lock:
-                                self.device = "cpu"
-                                self.half = False
-                            self._torch.set_num_threads(min(4, os.cpu_count() or 1))
-                            self._warn("GPU inference failed. Retrying on CPU; inference may be slower.")
                 raise DetectionError("Inference recovery was exhausted. Restart the backend and retry.")
             except Exception as exc:
                 self.ready = False

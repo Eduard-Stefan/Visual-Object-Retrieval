@@ -22,10 +22,11 @@ test('real GPU indexing, object retrieval, annotations, filtering and collection
   page,
   request,
 }) => {
-  test.skip(
-    !existsSync(resolve(assets, 'bus.jpg')),
-    'Install backend dependencies to obtain local Ultralytics smoke assets.',
-  );
+  // This integration test requires the installed backend's real image fixtures.
+  expect(
+    existsSync(resolve(assets, 'bus.jpg')),
+    'Install backend dependencies before running this test.',
+  ).toBeTruthy();
   const failures: string[] = [];
   page.on('pageerror', (error) => failures.push(error.message));
   expect((await request.delete('/api/images')).ok()).toBeTruthy();

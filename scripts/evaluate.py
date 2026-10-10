@@ -7,6 +7,7 @@ uses detections as ground truth. See docs/evaluation.md for the label format.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Collection
 import json
 import math
 import sys
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
@@ -35,6 +36,32 @@ def canonical_category(value: Any) -> str:
     return value.strip().lower()
 
 
+def parse_image_labels(row: Any, existing_filenames: Collection[str]) -> ImageLabels:
+    if not isinstance(row, dict):
+        raise EvaluationError("Each images entry must be an object.")
+    filename = row.get("filename")
+    if not isinstance(filename, str) or not filename.strip():
+        raise EvaluationError("Each label requires a nonempty filename.")
+    if filename in existing_filenames:
+        raise EvaluationError(f"Duplicate filename in labels: {filename}")
+    categories = row.get("categories")
+    if not isinstance(categories, list):
+        raise EvaluationError(f"Review {filename}: categories must be an array; null means unreviewed.")
+    canonical = [canonical_category(category) for category in categories]
+    if len(canonical) != len(set(canonical)):
+        raise EvaluationError(f"Duplicate categories in labels for {filename}.")
+    file_hash = row.get("file_hash")
+    if file_hash is not None:
+        if (
+            not isinstance(file_hash, str)
+            or len(file_hash) != 64
+            or any(char not in "0123456789abcdefABCDEF" for char in file_hash)
+        ):
+            raise EvaluationError(f"Invalid SHA-256 file_hash for {filename}.")
+        file_hash = file_hash.lower()
+    return ImageLabels(filename, frozenset(canonical), file_hash)
+
+
 def load_labels(path: Path) -> dict[str, ImageLabels]:
     """Require explicit labels for every image, including reviewed negatives."""
     try:
@@ -48,29 +75,8 @@ def load_labels(path: Path) -> dict[str, ImageLabels]:
         raise EvaluationError("Labels must contain a nonempty images array.")
     labels: dict[str, ImageLabels] = {}
     for row in rows:
-        if not isinstance(row, dict):
-            raise EvaluationError("Each images entry must be an object.")
-        filename = row.get("filename")
-        if not isinstance(filename, str) or not filename.strip():
-            raise EvaluationError("Each label requires a nonempty filename.")
-        if filename in labels:
-            raise EvaluationError(f"Duplicate filename in labels: {filename}")
-        categories = row.get("categories")
-        if not isinstance(categories, list):
-            raise EvaluationError(f"Review {filename}: categories must be an array; null means unreviewed.")
-        canonical = [canonical_category(category) for category in categories]
-        if len(canonical) != len(set(canonical)):
-            raise EvaluationError(f"Duplicate categories in labels for {filename}.")
-        file_hash = row.get("file_hash")
-        if file_hash is not None:
-            if (
-                not isinstance(file_hash, str)
-                or len(file_hash) != 64
-                or any(char not in "0123456789abcdefABCDEF" for char in file_hash)
-            ):
-                raise EvaluationError(f"Invalid SHA-256 file_hash for {filename}.")
-            file_hash = file_hash.lower()
-        labels[filename] = ImageLabels(filename, frozenset(canonical), file_hash)
+        label = parse_image_labels(row, labels)
+        labels[label.filename] = label
     return labels
 
 
@@ -94,7 +100,7 @@ class ApiClient:
                 result = json.load(response)
         except HTTPError as exc:
             raise EvaluationError(f"API returned HTTP {exc.code} for {path}.") from exc
-        except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        except (OSError, json.JSONDecodeError) as exc:
             raise EvaluationError(f"Cannot read API response for {path}: {exc}") from exc
         if not isinstance(result, dict):
             raise EvaluationError(f"API returned an invalid JSON object for {path}.")
@@ -122,6 +128,28 @@ class ApiClient:
         )
 
 
+def validate_page(response: dict[str, Any], expected_total: int | None) -> tuple[list[dict[str, Any]], int]:
+    rows, total = response.get("items"), response.get("total")
+    if not isinstance(rows, list) or isinstance(total, bool) or not isinstance(total, int) or total < 0:
+        raise EvaluationError("API pagination must return items and a nonnegative total.")
+    if expected_total is not None and total != expected_total:
+        raise EvaluationError("Collection changed during pagination; rerun when idle.")
+    return rows, total
+
+
+def append_page_rows(
+    collected: list[dict[str, Any]], identities: set[str], rows: list[dict[str, Any]]
+) -> None:
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("id"):
+            raise EvaluationError("Each API image must have an id.")
+        identity = str(row["id"])
+        if identity in identities:
+            raise EvaluationError("API returned duplicate image IDs during pagination.")
+        identities.add(identity)
+        collected.append(row)
+
+
 def collect_pages(fetch: Callable[[int, int], dict[str, Any]], page_size: int = 100) -> list[dict[str, Any]]:
     """Read every result page and reject incomplete or unstable responses."""
     collected: list[dict[str, Any]] = []
@@ -129,21 +157,9 @@ def collect_pages(fetch: Callable[[int, int], dict[str, Any]], page_size: int = 
     expected_total: int | None = None
     page = 1
     while True:
-        response = fetch(page, page_size)
-        rows, total = response.get("items"), response.get("total")
-        if not isinstance(rows, list) or isinstance(total, bool) or not isinstance(total, int) or total < 0:
-            raise EvaluationError("API pagination must return items and a nonnegative total.")
-        if expected_total is not None and total != expected_total:
-            raise EvaluationError("Collection changed during pagination; rerun when idle.")
+        rows, total = validate_page(fetch(page, page_size), expected_total)
         expected_total = total
-        for row in rows:
-            if not isinstance(row, dict) or not row.get("id"):
-                raise EvaluationError("Each API image must have an id.")
-            identity = str(row["id"])
-            if identity in identities:
-                raise EvaluationError("API returned duplicate image IDs during pagination.")
-            identities.add(identity)
-            collected.append(row)
+        append_page_rows(collected, identities, rows)
         if len(collected) > total:
             raise EvaluationError("API returned more images than its declared total.")
         if len(collected) == total:

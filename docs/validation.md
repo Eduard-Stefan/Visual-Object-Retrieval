@@ -4,17 +4,18 @@ Validated on 10 October 2026 in the `Visual-Object-Retrieval` repository on `mai
 
 | Check | Command from repository root unless noted | Result |
 | --- | --- | --- |
-| Backend, detector and evaluation tests, including real inference | Set `VOR_RUN_INFERENCE_TEST=1`, then `.venv/Scripts/python.exe -m pytest -q` | **68 passed** |
+| Backend, detector and evaluation tests, including real inference | Set `VOR_RUN_INFERENCE_TEST=1`, then `.venv/Scripts/python.exe -m pytest -q` | **69 passed** |
 | Python static checks | `.venv/Scripts/python.exe -m ruff check backend scripts` | Passed |
 | Python formatting | `.venv/Scripts/python.exe -m ruff format --check backend scripts` | Passed |
 | Python dependency compatibility | `.venv/Scripts/python.exe -m pip check` | No broken requirements |
-| Frontend component/API tests | In `frontend`, `npm test` | **33 passed in 5 suites** |
+| Frontend component/API tests | In `frontend`, `npm test` | **35 passed in 6 suites** |
 | TypeScript checking | In `frontend`, `npm run typecheck` | Passed |
 | Frontend formatting | In `frontend`, `npm run format:check` | Passed |
 | Production build, including TypeScript | In `frontend`, `npm run build` | Passed |
 | Frontend dependency audit | In `frontend`, `npm audit --json` | **0 vulnerabilities**, including development dependencies |
 | Real browser workflow | In `frontend`, `npx playwright test` | **1 passed** in installed Microsoft Edge |
 | Real CUDA model benchmark | `scripts/hardware_probe.py --image .../ultralytics/assets/bus.jpg --runs 5` | YOLO11m, CUDA FP16, median **21.10 ms** warm service call |
+| SonarQube analysis | Running VS Code SonarQube for IDE 6.0.1 extension, all project text files | **0 findings across 78 files** |
 
 The standard backend command without the opt-in flag skips the two tests that run actual YOLO. The real test run above enabled both; no backend tests were skipped. Starlette emitted one dependency deprecation warning about its HTTPX test-client integration; tests passed.
 
@@ -52,6 +53,14 @@ The batch launchers were exercised with Windows PowerShell 5.1, Python 3.14 and 
 - The user's existing CUDA environment was retained. Restarting the main collection under the launcher preserved all 50 image IDs and hashes, its 114 detected objects and 30 categories at confidence 0.5. The system still selected `cuda:0` with FP16.
 
 The standard backend regression suite passed again: **66 passed, 2 opt-in inference tests skipped**. Ruff checks and formatting passed. The clean-copy uploads used actual CPU inference; temporary test images and environments are excluded from Git.
+
+## SonarQube fixes and verification
+
+The installed SonarQube for IDE 6.0.1 analyzer initially reported **122 findings** across Python, TypeScript/React and CSS. The fixes split application setup, upload/indexing transactions, inference recovery, evaluation validation and screen rendering into focused functions and components. They document API error responses with a typed payload, remove redundant exception catches, improve assertion diagnostics, replace custom semantic controls with native HTML elements, update deprecated chart usage and improve text contrast.
+
+A fresh analysis requested through the running VS Code extension returned no findings across all **78 project text files**, including the new React modules and dialog tests. The same installed language server was also checked independently. Rule settings, exclusions and suppression directives were not changed. Generated environments, runtime data and binary screenshots are outside the project source verification.
+
+Regression checks include real CUDA inference, API documentation contracts, upload/indexing recovery, retrieval persistence, native dialog keyboard focus, Escape dismissal, backdrop clicks and the real Edge browser workflow. The existing collection retains its 50 image IDs and file hashes.
 
 ## Scope and limits
 

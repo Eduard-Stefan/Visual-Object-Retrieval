@@ -128,25 +128,29 @@ def test_label_loader_rejects_duplicate_filenames(tmp_path):
 
 
 def test_complete_collection_required(labels):
+    collection = [image("1", "cycling.jpg")]
     with pytest.raises(EvaluationError, match="full indexed collection"):
-        validate_collection(labels, [image("1", "cycling.jpg")])
+        validate_collection(labels, collection)
 
 
 @pytest.mark.parametrize("status", ["queued", "processing", "failed"])
 def test_incomplete_or_failed_indexing_is_not_a_retrieval_miss(labels, status):
+    collection = [image("1", "cycling.jpg", status)]
     with pytest.raises(EvaluationError, match="finish indexing successfully"):
-        validate_collection(labels, [image("1", "cycling.jpg", status)])
+        validate_collection(labels, collection)
 
 
 def test_ambiguous_original_filenames_rejected(labels):
+    collection = [image("1", "cycling.jpg"), image("2", "cycling.jpg")]
     with pytest.raises(EvaluationError, match="Ambiguous duplicate indexed filename"):
-        validate_collection(labels, [image("1", "cycling.jpg"), image("2", "cycling.jpg")])
+        validate_collection(labels, collection)
 
 
 def test_hash_prevents_reusing_labels_for_different_image():
     labels = {"photo.jpg": ImageLabels("photo.jpg", frozenset({"person"}), "b" * 64)}
+    collection = [image("1", "photo.jpg")]
     with pytest.raises(EvaluationError, match="hash mismatch"):
-        validate_collection(labels, [image("1", "photo.jpg")])
+        validate_collection(labels, collection)
 
 
 def test_pagination_reads_all_pages_without_truncating_results():
@@ -209,8 +213,9 @@ def test_end_to_end_evaluation_uses_retrieval_results_and_reports_errors(labels)
 
 @pytest.mark.parametrize("confidence", [-0.1, 1.1, float("nan"), float("inf")])
 def test_invalid_threshold_is_rejected_before_network_work(labels, confidence):
+    client = FakeClient()
     with pytest.raises(EvaluationError, match="finite number"):
-        evaluate(FakeClient(), labels, ["person"], "and", confidence)
+        evaluate(client, labels, ["person"], "and", confidence)
 
 
 def test_collection_change_during_search_invalidates_evaluation(labels):
@@ -220,8 +225,9 @@ def test_collection_change_during_search_invalidates_evaluation(labels):
             self.images = [dict(row, id=f"new-{row['id']}") for row in self.images]
             return results
 
+    client = ChangedClient()
     with pytest.raises(EvaluationError, match="changed during evaluation"):
-        evaluate(ChangedClient(), labels, ["person"], "and", 0.5)
+        evaluate(client, labels, ["person"], "and", 0.5)
 
 
 def test_unknown_retrieved_image_invalidates_evaluation(labels):
@@ -229,5 +235,6 @@ def test_unknown_retrieved_image_invalidates_evaluation(labels):
         def search(self, categories, mode, confidence):
             return [image("other", "outside.jpg")]
 
+    client = OutsideClient()
     with pytest.raises(EvaluationError, match="outside the labeled collection"):
-        evaluate(OutsideClient(), labels, ["person"], "and", 0.5)
+        evaluate(client, labels, ["person"], "and", 0.5)

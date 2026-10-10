@@ -10,14 +10,14 @@ export function ImageCard({
   selected,
   showOthers,
   onOpen,
-}: {
+}: Readonly<{
   image: IndexedImage;
   confidence: number;
   annotated: boolean;
   selected: string[];
   showOthers: boolean;
   onOpen: () => void;
-}) {
+}>) {
   const detections = image.detections.filter((detection) => detection.confidence >= confidence);
   const categories = [...new Set(detections.map((detection) => detection.class_name))];
   const matching = detections.filter(
@@ -26,6 +26,9 @@ export function ImageCard({
   const highest = matching.length
     ? Math.max(...matching.map((detection) => detection.confidence))
     : null;
+  const objectCount = selected.length ? matching.length : detections.length;
+  const objectDescription = selected.length ? 'matching' : 'detected';
+  const plural = objectCount === 1 ? '' : 's';
   return (
     <article className="image-card">
       <button
@@ -67,9 +70,7 @@ export function ImageCard({
         </div>
         <p className="image-card-meta">
           <ScanLine size={13} />
-          {selected.length
-            ? `${matching.length} matching object${matching.length !== 1 ? 's' : ''}`
-            : `${detections.length} detected object${detections.length !== 1 ? 's' : ''}`}
+          {`${objectCount} ${objectDescription} object${plural}`}
           <span>·</span>
           {image.width} × {image.height}
         </p>

@@ -7,6 +7,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const data = join(root, 'data', 'browser-tests');
 mkdirSync(join(data, 'models'), { recursive: true });
 const weights = join(root, 'data', 'models', 'yolo11m.pt');
+const python =
+  process.platform === 'win32' ? String.raw`.venv\Scripts\python.exe` : '.venv/bin/python';
 if (existsSync(weights) && !existsSync(join(data, 'models', 'yolo11m.pt'))) {
   copyFileSync(weights, join(data, 'models', 'yolo11m.pt'));
 }
@@ -28,7 +30,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: `${process.platform === 'win32' ? '.venv\\Scripts\\python.exe' : '.venv/bin/python'} scripts/run.py --port 8001`,
+    command: `${python} scripts/run.py --port 8001`,
     cwd: root,
     url: 'http://127.0.0.1:8001/api/health',
     timeout: 60_000,

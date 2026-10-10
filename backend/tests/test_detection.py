@@ -99,9 +99,11 @@ def test_cached_model_is_reused_and_inference_is_configured(tmp_path):
     assert engine._model is model
     assert model.predict.call_count == 2
     options = model.predict.call_args.kwargs
-    assert options["batch"] == 1 and options["quantize"] == 32
+    assert options["batch"] == 1
+    assert options["quantize"] == 32
     assert "half" not in options
-    assert options["imgsz"] == 640 and options["conf"] == 0.15
+    assert options["imgsz"] == 640
+    assert options["conf"] == 0.15
 
 
 def fake_torch(cuda_available=True):

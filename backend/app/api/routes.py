@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..models import ImageRecord, JobRecord
 from ..schemas import (
+    APIError,
     Category,
     Detection,
     Image,
@@ -60,13 +61,27 @@ def system(request: Request):
     }
 
 
-@router.post("/images/upload", response_model=UploadAccepted, status_code=202)
+@router.post(
+    "/images/upload",
+    response_model=UploadAccepted,
+    status_code=202,
+    responses={
+        400: {"model": APIError, "description": "Invalid upload or no usable images."},
+        409: {"model": APIError, "description": "The collection was cleared during upload."},
+        413: {"model": APIError, "description": "The upload exceeds the file count or request size limit."},
+        429: {"model": APIError, "description": "The image processing queue is full."},
+    },
+)
 def upload_images(request: Request, files: Annotated[list[UploadFile], File()]):
     job = request.app.state.indexer.accept_upload(files)
     return UploadAccepted(job_id=job.id, total=job.total)
 
 
-@router.get("/jobs/{job_id}", response_model=Job)
+@router.get(
+    "/jobs/{job_id}",
+    response_model=Job,
+    responses={404: {"model": APIError, "description": "The processing job was not found."}},
+)
 def job_status(job_id: str, session: SessionDependency):
     job = session.get(JobRecord, job_id)
     if not job:
@@ -103,14 +118,22 @@ def clear_images(request: Request):
     return Response(status_code=204)
 
 
-@router.get("/images/{image_id}", response_model=Image)
+@router.get(
+    "/images/{image_id}",
+    response_model=Image,
+    responses={404: {"model": APIError, "description": "The image was not found."}},
+)
 def image_detail(image_id: str, session: SessionDependency, confidence: Confidence = 0.5):
     image = find_image(session, image_id)
     detections = get_detections(session, [image_id], confidence)[image_id]
     return image_payload(image, detections)
 
 
-@router.get("/images/{image_id}/detections", response_model=list[Detection])
+@router.get(
+    "/images/{image_id}/detections",
+    response_model=list[Detection],
+    responses={404: {"model": APIError, "description": "The image was not found."}},
+)
 def image_detections(image_id: str, session: SessionDependency, confidence: Confidence = 0.5):
     find_image(session, image_id)
     return get_detections(session, [image_id], confidence)[image_id]
@@ -128,23 +151,46 @@ def stored_file(request: Request, session: Session, image_id: str, thumbnail: bo
     return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
 
 
-@router.get("/images/{image_id}/file")
+@router.get(
+    "/images/{image_id}/file",
+    responses={
+        404: {"model": APIError, "description": "The image was not found or its file is unavailable."}
+    },
+)
 def image_file(request: Request, image_id: str, session: SessionDependency):
     return stored_file(request, session, image_id, thumbnail=False)
 
 
-@router.get("/images/{image_id}/thumbnail")
+@router.get(
+    "/images/{image_id}/thumbnail",
+    responses={
+        404: {"model": APIError, "description": "The image was not found or its thumbnail is unavailable."}
+    },
+)
 def image_thumbnail(request: Request, image_id: str, session: SessionDependency):
     return stored_file(request, session, image_id, thumbnail=True)
 
 
-@router.delete("/images/{image_id}", status_code=204)
+@router.delete(
+    "/images/{image_id}",
+    status_code=204,
+    responses={404: {"model": APIError, "description": "The image was not found."}},
+)
 def delete_image(request: Request, image_id: str):
     request.app.state.indexer.delete_image(image_id)
     return Response(status_code=204)
 
 
-@router.post("/images/{image_id}/retry", response_model=UploadAccepted, status_code=202)
+@router.post(
+    "/images/{image_id}/retry",
+    response_model=UploadAccepted,
+    status_code=202,
+    responses={
+        404: {"model": APIError, "description": "The image was not found."},
+        409: {"model": APIError, "description": "Only failed images can be retried."},
+        429: {"model": APIError, "description": "The image processing queue is full."},
+    },
+)
 def retry_image(request: Request, image_id: str):
     job = request.app.state.indexer.retry(image_id)
     return UploadAccepted(job_id=job.id, total=job.total)

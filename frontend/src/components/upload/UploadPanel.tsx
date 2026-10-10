@@ -11,13 +11,13 @@ export function UploadPanel({
   busy,
   error,
   limits = { maxFileMb: 20, maxFiles: 50, maxBodyMb: 256 },
-}: {
+}: Readonly<{
   onClose: () => void;
   onUpload: (files: File[]) => void;
   busy: boolean;
   error?: string;
   limits?: { maxFileMb: number; maxFiles: number; maxBodyMb: number };
-}) {
+}>) {
   const [files, setFiles] = useState<File[]>([]);
   const [validation, setValidation] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);

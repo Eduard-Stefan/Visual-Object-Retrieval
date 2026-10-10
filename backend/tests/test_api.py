@@ -259,7 +259,8 @@ def test_single_multi_object_and_or_and_unknown_search(app_client):
 
     assert search(["car"])["items"][0]["filename"] == "car.png"
     both = search([" Person ", "Bicycle"])
-    assert both["total"] == 1 and both["items"][0]["matching_count"] == 2
+    assert both["total"] == 1
+    assert both["items"][0]["matching_count"] == 2
     assert search(["person", "bicycle"], confidence=0.7)["total"] == 1
     assert search(["person", "dog"])["total"] == 0
     assert search(["person", "dog"], "or")["total"] == 3
@@ -343,9 +344,11 @@ def test_failed_inference_is_visible_and_can_be_retried(app_client, monkeypatch,
     monkeypatch.setattr(detector, "status", lambda: original_status() | {"error": safe_error})
     detector.fail_next = True
     job = upload(client, [("retry.png", "red")])
-    assert job["status"] == "failed" and job["failed"] == 1
+    assert job["status"] == "failed"
+    assert job["failed"] == 1
     image = client.get("/api/images").json()["items"][0]
-    assert image["status"] == "failed" and image["error"]
+    assert image["status"] == "failed"
+    assert image["error"]
     if safe_error:
         assert image["error"] == safe_error
         assert safe_error in job["errors"][0]
@@ -450,6 +453,32 @@ def test_request_errors_are_readable_and_unknown_ids_are_not_found(app_client):
     assert client.get("/api/jobs/missing").status_code == 404
     assert client.delete("/api/images/missing").status_code == 404
     assert client.get("/api/unknown").status_code == 404
+
+
+def test_api_reference_documents_error_payloads(app_client):
+    client, _, _ = app_client
+    schema = client.get("/openapi.json").json()
+    error_schema = schema["components"]["schemas"]["APIError"]
+    assert error_schema["required"] == ["detail"]
+    assert error_schema["properties"]["detail"]["type"] == "string"
+    endpoints = [
+        ("/api/images/upload", "post", [400, 409, 413, 429]),
+        ("/api/jobs/{job_id}", "get", [404]),
+        ("/api/images/{image_id}", "get", [404]),
+        ("/api/images/{image_id}", "delete", [404]),
+        ("/api/images/{image_id}/detections", "get", [404]),
+        ("/api/images/{image_id}/file", "get", [404]),
+        ("/api/images/{image_id}/thumbnail", "get", [404]),
+        ("/api/images/{image_id}/retry", "post", [404, 409, 429]),
+    ]
+    for path, method, statuses in endpoints:
+        responses = schema["paths"][path][method]["responses"]
+        for status in statuses:
+            documented = responses[str(status)]
+            assert documented["description"]
+            assert documented["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/APIError"
+            }
 
 
 def test_production_frontend_is_served_without_masking_api_errors(configured):

@@ -1,14 +1,5 @@
 import { BarChart3, Boxes, Images, Search, Tags, TrendingUp } from 'lucide-react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { Statistics as StatisticsData } from '../../types';
 import { categoryColor, label, number } from '../../lib/format';
 
@@ -16,11 +7,11 @@ export function StatisticCards({
   data,
   results,
   loading,
-}: {
+}: Readonly<{
   data?: StatisticsData;
   results?: number;
   loading: boolean;
-}) {
+}>) {
   const cards = [
     {
       title: 'Total Images',
@@ -71,10 +62,12 @@ export function StatisticCards({
   );
 }
 
-export function DistributionChart({ data }: { data: StatisticsData }) {
-  const chartData = data.distribution
-    .slice(0, 10)
-    .map((item) => ({ ...item, display_name: label(item.class_name) }));
+export function DistributionChart({ data }: Readonly<{ data: StatisticsData }>) {
+  const chartData = data.distribution.slice(0, 10).map((item) => ({
+    ...item,
+    display_name: label(item.class_name),
+    fill: categoryColor(item.class_name),
+  }));
   return (
     <section className="panel distribution-panel">
       <div className="section-heading">
@@ -114,11 +107,7 @@ export function DistributionChart({ data }: { data: StatisticsData }) {
                 contentStyle={{ border: '1px solid #e8eaf3', borderRadius: 10, fontSize: 12 }}
                 formatter={(value) => [value, 'Objects']}
               />
-              <Bar dataKey="count" radius={[5, 5, 0, 0]} maxBarSize={46}>
-                {chartData.map((item) => (
-                  <Cell key={item.class_name} fill={categoryColor(item.class_name)} />
-                ))}
-              </Bar>
+              <Bar dataKey="count" radius={[5, 5, 0, 0]} maxBarSize={46} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -131,8 +120,7 @@ export function DistributionChart({ data }: { data: StatisticsData }) {
       )}
       <div className="chart-footer">
         <span>
-          <i />
-          Actual indexed detections
+          <i /> Actual indexed detections
         </span>
         <span>
           {number(data.total_objects)} objects across {number(data.total_categories)} categories

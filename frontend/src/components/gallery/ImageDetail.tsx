@@ -17,7 +17,7 @@ export function ImageDetail({
   onRetry,
   retrying = false,
   retryError,
-}: {
+}: Readonly<{
   image: IndexedImage;
   confidence: number;
   selected: string[];
@@ -26,7 +26,7 @@ export function ImageDetail({
   onRetry?: (image: IndexedImage) => void;
   retrying?: boolean;
   retryError?: string;
-}) {
+}>) {
   const [annotated, setAnnotated] = useState(true);
   const [showOthers, setShowOthers] = useState(true);
   const detail = useQuery({
@@ -36,6 +36,11 @@ export function ImageDetail({
   });
   const image = detail.data;
   const detections = image.detections.filter((detection) => detection.confidence >= confidence);
+  const emptyMessages: Record<string, string> = {
+    completed: 'No objects meet this confidence threshold.',
+    failed: 'Retry indexing to detect objects in this image.',
+  };
+  const emptyMessage = emptyMessages[image.status] ?? 'This image is waiting to be indexed.';
   return (
     <Modal
       title={image.filename}
@@ -68,7 +73,7 @@ export function ImageDetail({
               type="checkbox"
               checked={showOthers}
               onChange={(event) => setShowOthers(event.target.checked)}
-            />
+            />{' '}
             Show other detections
           </label>
         )}
@@ -128,15 +133,7 @@ export function ImageDetail({
                 <strong>{percent(detection.confidence)}</strong>
               </div>
             ))}
-            {!detections.length && (
-              <p className="muted">
-                {image.status === 'completed'
-                  ? 'No objects meet this confidence threshold.'
-                  : image.status === 'failed'
-                    ? 'Retry indexing to detect objects in this image.'
-                    : 'This image is waiting to be indexed.'}
-              </p>
-            )}
+            {!detections.length && <p className="muted">{emptyMessage}</p>}
           </div>
           <div className="detail-metadata">
             <CalendarDays size={15} />

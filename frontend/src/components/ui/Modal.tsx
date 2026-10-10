@@ -7,14 +7,14 @@ export function Modal({
   children,
   onClose,
   wide = false,
-}: {
+}: Readonly<{
   title: string;
   description?: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
+}>) {
+  const ref = useRef<HTMLDialogElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -47,16 +47,18 @@ export function Modal({
     };
   }, []);
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
+    <div className="modal-backdrop">
+      <button
+        type="button"
+        className="modal-dismiss-layer"
+        aria-label="Close dialog backdrop"
+        tabIndex={-1}
+        onClick={onClose}
+      />
+      <dialog
         ref={ref}
         className={`modal ${wide ? 'modal-wide' : ''}`}
-        role="dialog"
+        open
         aria-modal="true"
         aria-labelledby="modal-title"
         aria-describedby={description ? 'modal-description' : undefined}
@@ -71,7 +73,7 @@ export function Modal({
           </button>
         </div>
         {children}
-      </div>
+      </dialog>
     </div>
   );
 }
