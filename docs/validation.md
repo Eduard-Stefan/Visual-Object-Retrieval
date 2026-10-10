@@ -40,6 +40,19 @@ Desktop and mobile screenshots were visually inspected. Real result/detail scree
 
 The development frontend was also started on port 5173: its page, proxied health endpoint and proxied CUDA system details returned successfully. Vite's development proxy targets `127.0.0.1:8000`; the production build is served by FastAPI at the same origin.
 
+## Windows launcher checks
+
+The batch launchers were exercised with Windows PowerShell 5.1, Python 3.14 and Node.js 24.11.1:
+
+- A clean copy of the tracked project files plus the launchers, with no `.venv`, `node_modules`, built interface or `.env`, completed setup using `start.bat -Cpu -NoBrowser -Port 8012`. It installed the CPU PyTorch build, downloaded YOLO11m on the first upload and successfully indexed two real sample photographs.
+- Repeated start reused the existing server. Repeated stop was harmless. A subsequent start skipped unchanged setup, and image records persisted across shutdown and restart.
+- Launching from another directory with spaces in the repository path worked. Capturing the batch command's output also returned promptly while the background server stayed healthy.
+- An unrelated occupied port, a stale record pointing at an unrelated process with a matching creation timestamp, and corrupt launcher state were handled without stopping the unrelated process.
+- A deliberately invalid frontend lock file failed setup without starting a server or updating the successful build marker. Restoring the lock file and changing a source file triggered a successful rebuild. Startup and graceful shutdown appeared in the server logs.
+- The user's existing CUDA environment was retained. Restarting the main collection under the launcher preserved all 50 image IDs and hashes, its 114 detected objects and 30 categories at confidence 0.5. The system still selected `cuda:0` with FP16.
+
+The standard backend regression suite passed again: **66 passed, 2 opt-in inference tests skipped**. Ruff checks and formatting passed. The clean-copy uploads used actual CPU inference; temporary test images and environments are excluded from Git.
+
 ## Scope and limits
 
 YOLO11m was tested on the user's actual CUDA hardware and retained because it ran reliably. Recovery tests simulate out-of-memory conditions; the user's GPU was not deliberately exhausted. The measured sample latency excludes upload/database overhead and is not a claim about arbitrary images or devices. See [hardware details](hardware-verification.md).

@@ -30,9 +30,29 @@ flowchart LR
 
 Frontend: React, TypeScript, Vite, Tailwind CSS, TanStack Query, Lucide React and Recharts. Backend: Python 3.11+, FastAPI, Uvicorn, Ultralytics, PyTorch, OpenCV, Pillow, NumPy, SQLAlchemy, SQLite and Pydantic. Tests: Pytest, Vitest and React Testing Library.
 
-## Requirements and installation
+## Windows quick start
 
-Use Python 3.11+ supported by your chosen PyTorch build (3.12 is a conservative choice; this workstation uses 3.14), Node.js 22.12+ or 24 LTS, and npm. NVIDIA acceleration requires a compatible driver. CPU inference is supported. Initial weight download requires internet; cached weights work offline.
+1. Install 64-bit [Python 3.11–3.14](https://www.python.org/downloads/windows/) and [Node.js](https://nodejs.org/en/download) 22.12+ within the 22.x line or 24+ (24 LTS recommended), with Python, Node.js and npm available on `PATH`. The scripts do not install these prerequisites.
+2. Clone or download the repository, then double-click **`start.bat`**. You can also run `.\start.bat` from PowerShell. On the first run it creates `.venv`, installs backend dependencies, copies `.env.example` to `.env` if needed, installs frontend dependencies and builds the interface. It then starts the server in the background and opens [http://localhost:8000](http://localhost:8000).
+3. Double-click **`stop.bat`**, or run `.\stop.bat`, to gracefully stop the instance started by the script. Your images, detections, settings and downloaded weights remain saved.
+
+Later starts skip unchanged setup. After pulling source changes, stop and start the app to apply dependency updates and rebuild the interface when needed. Initial setup requires internet; model weights download on the first upload and are cached for later use.
+
+For a new environment, the launcher installs PyTorch 2.11.0 and torchvision 0.26.0, choosing CUDA 12.8 wheels when NVIDIA hardware is available and CPU wheels otherwise. An existing PyTorch installation is retained. NVIDIA acceleration still requires a compatible driver; use the manual instructions below for a different PyTorch build.
+
+Optional startup settings:
+
+```powershell
+.\start.bat -NoBrowser  # Start without opening a browser
+.\start.bat -Port 8002  # Use http://localhost:8002
+.\start.bat -Cpu        # Use CPU inference; install CPU wheels in a new environment
+```
+
+The scripts use `scripts/windows.ps1` to manage only their own app instance through a local control file. Server output is recorded in `data/launcher/server.stdout.log` and `data/launcher/server.stderr.log`. For a server started manually in a terminal, use Ctrl+C to stop it.
+
+## Manual requirements and installation
+
+Use Python 3.11–3.14 supported by your chosen PyTorch build (3.12 is a conservative choice; this workstation uses 3.14), Node.js 22.12+ or 24 LTS, and npm. NVIDIA acceleration requires a compatible driver. CPU inference is supported. Initial weight download requires internet; cached weights work offline.
 
 Windows PowerShell, from the repository root:
 
